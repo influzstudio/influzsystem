@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Influz Studio{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E1822;
+    --bg-soft:#13202E;
+    --teal:#2DD4BF;
+    --teal-dim:rgba(45,212,191,0.18);
+    --mint:#A7E8DC;
+    --ink:#F4F7F6;
+    --muted:#7E8FA0;
+    --line:rgba(45,212,191,0.16);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    line-height:1.6;
+    min-height:100vh;
+  }
+  h1,h2,h3,.logo-text{font-family:'Poppins',sans-serif;}
+  a{color:inherit;text-decoration:none;}
+
+  nav{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:20px 6%;
+    border-bottom:1px solid var(--line);
+  }
+  .nav-brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600;letter-spacing:0.5px;}
+  .nav-brand .mark{color:var(--teal);font-weight:700;}
+  .nav-links{display:flex;gap:28px;font-size:14px;color:var(--muted);}
+  .nav-links a:hover{color:var(--teal);}
+
+  main{padding:48px 6% 80px;max-width:1100px;margin:0 auto;}
+
+  .eyebrow{
+    font-size:13px;letter-spacing:3px;text-transform:uppercase;
+    color:var(--teal);font-weight:500;margin-bottom:12px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .eyebrow::before{content:'';width:24px;height:1px;background:var(--teal);}
+  h1.page-title{font-size:clamp(24px,4vw,36px);font-weight:600;letter-spacing:-0.5px;margin-bottom:32px;}
+
+  .card{
+    background:var(--bg-soft);border:1px solid var(--line);
+    border-radius:8px;padding:28px;
+  }
+
+  label{font-size:13px;color:var(--muted);letter-spacing:0.5px;display:block;margin-bottom:8px;}
+  input, textarea, select{
+    width:100%;background:var(--bg);
+    border:1px solid var(--line);border-radius:4px;
+    padding:12px 14px;color:var(--ink);
+    font-family:'Inter',sans-serif;font-size:14px;
+    margin-bottom:20px;
+  }
+  input:focus, textarea:focus, select:focus{outline:none;border-color:var(--teal);}
+  textarea{resize:vertical;min-height:90px;}
+
+  .btn{
+    background:var(--teal);color:var(--bg);
+    border:none;padding:13px 28px;border-radius:4px;
+    font-weight:600;font-size:14px;letter-spacing:0.5px;
+    cursor:pointer;display:inline-flex;align-items:center;gap:8px;
+    transition:transform 0.2s;
+  }
+  .btn:hover{transform:translateY(-2px);}
+  .btn-secondary{
+    background:transparent;color:var(--ink);
+    border:1px solid var(--line);
+    padding:13px 28px;border-radius:4px;
+    font-weight:500;font-size:14px;cursor:pointer;
+  }
+  .btn-small{padding:8px 16px;font-size:13px;}
+
+  .badge{
+    font-size:12px;font-weight:500;
+    background:var(--teal-dim);color:var(--teal);
+    display:inline-block;padding:3px 10px;border-radius:4px;
+  }
+  .badge-muted{background:rgba(126,143,160,0.15);color:var(--muted);}
+
+  table{width:100%;border-collapse:collapse;}
+  th{
+    text-align:left;font-size:12px;color:var(--muted);
+    letter-spacing:0.5px;text-transform:uppercase;
+    padding:10px 12px;border-bottom:1px solid var(--line);
+  }
+  td{padding:14px 12px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+
+  .empty-state{
+    text-align:center;padding:60px 20px;color:var(--muted);
+  }
+  .empty-state h3{color:var(--ink);margin-bottom:8px;font-weight:500;}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:700px){.grid-2{grid-template-columns:1fr;}}
+
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1.5rem;}
+  .stat-card{background:var(--bg-soft);border:1px solid var(--line);border-radius:6px;padding:1rem;}
+  .stat-card .label{font-size:13px;color:var(--muted);margin-bottom:4px;}
+  .stat-card .value{font-size:24px;font-weight:600;font-family:'Poppins',sans-serif;}
+  .stat-card .delta{font-size:12px;color:var(--teal);margin-top:4px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">
+    <span class="mark">IS</span>
+    <span class="logo-text">Influz <span style="color:var(--mint);font-weight:300;">Studio</span></span>
+  </a>
+  <div class="nav-links">
+    <a href="/">Clients</a>
+    <a href="/onboard">+ New client</a>
+  </div>
+</nav>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Clients — Influz Studio{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Dashboard</div>
+<h1 class="page-title">Your clients</h1>
+
+{% if clients %}
+<div class="card" style="padding:0;">
+  <table>
+    <thead>
+      <tr>
+        <th>Business</th>
+        <th>Niche</th>
+        <th>Instagram</th>
+        <th>Added</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td style="font-weight:500;">{{ c.business_name }}</td>
+        <td><span class="badge">{{ c.niche }}</span></td>
+        <td>{{ c.instagram_handle or '—' }}</td>
+        <td style="color:var(--muted);">{{ c.created_at.strftime('%d %b %Y') if c.created_at else '—' }}</td>
+        <td><a href="/client/{{ c.id }}" class="btn btn-small">Open →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty-state">
+  <h3>No clients yet</h3>
+  <p style="margin-bottom:20px;">Add your first client to generate an AI-powered content calendar.</p>
+  <a href="/onboard" class="btn">+ Add a client</a>
+</div>
+{% endif %}
+
+{% endblock %}

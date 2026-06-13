@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}New client — Influz Studio{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Client onboarding</div>
+<h1 class="page-title">Add a new client</h1>
+
+<div class="card" style="max-width:640px;">
+  <form action="/onboard" method="POST">
+    <label for="business_name">Business name</label>
+    <input type="text" id="business_name" name="business_name" required placeholder="e.g. The Glow Lounge">
+
+    <label for="niche">Industry / niche</label>
+    <input type="text" id="niche" name="niche" required placeholder="e.g. salon, gym, cafe, clinic">
+
+    <label for="brand_voice">Brand voice</label>
+    <input type="text" id="brand_voice" name="brand_voice" required placeholder="e.g. warm and friendly, premium and minimal, energetic">
+
+    <label for="goals">Goals</label>
+    <textarea id="goals" name="goals" required placeholder="e.g. increase local bookings, build brand awareness, promote new services"></textarea>
+
+    <div class="grid-2">
+      <div>
+        <label for="instagram_handle">Instagram handle (optional)</label>
+        <input type="text" id="instagram_handle" name="instagram_handle" placeholder="@business">
+      </div>
+      <div>
+        <label for="facebook_page">Facebook page (optional)</label>
+        <input type="text" id="facebook_page" name="facebook_page" placeholder="facebook.com/business">
+      </div>
+    </div>
+
+    <label for="notes">Additional notes (optional)</label>
+    <textarea id="notes" name="notes" placeholder="Anything else worth knowing — past campaigns, preferences, things to avoid"></textarea>
+
+    <button type="submit" class="btn">Save client →</button>
+  </form>
+</div>
+
+{% endblock %}

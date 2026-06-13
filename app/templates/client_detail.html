@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ client.business_name }} — Influz Studio{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Client profile</div>
+<h1 class="page-title">{{ client.business_name }}</h1>
+
+<div class="grid-2" style="margin-bottom:32px;">
+  <div class="card">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Niche</p>
+    <p style="margin-bottom:16px;">{{ client.niche }}</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Brand voice</p>
+    <p style="margin-bottom:16px;">{{ client.brand_voice }}</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Goals</p>
+    <p>{{ client.goals }}</p>
+  </div>
+  <div class="card">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Instagram</p>
+    <p style="margin-bottom:16px;">{{ client.instagram_handle or '—' }}</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Facebook</p>
+    <p style="margin-bottom:16px;">{{ client.facebook_page or '—' }}</p>
+    <a href="/client/{{ client.id }}/analytics" class="btn-secondary" style="display:inline-block;text-align:center;">View analytics dashboard →</a>
+  </div>
+</div>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+  <h2 style="font-size:20px;font-weight:600;">Content calendar — this week</h2>
+  <form action="/client/{{ client.id }}/generate" method="POST">
+    <button type="submit" class="btn">
+      {% if content_items %}Regenerate calendar{% else %}Generate calendar{% endif %} ✦
+    </button>
+  </form>
+</div>
+
+{% if content_items %}
+<div style="display:grid;gap:16px;">
+  {% for item in content_items %}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <span class="badge">{{ item.day_label }}</span>
+        <span class="badge badge-muted">{{ item.post_type }}</span>
+        {% if item.theme %}<span style="color:var(--muted);font-size:13px;">{{ item.theme }}</span>{% endif %}
+      </div>
+      <div>
+        {% if item.status == 'approved' %}
+          <span class="badge" style="background:rgba(45,212,191,0.25);">✓ Approved</span>
+        {% else %}
+          <form action="/content/{{ item.id }}/approve" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-small">Approve</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <form action="/content/{{ item.id }}/update" method="POST">
+      <textarea name="caption" style="margin-bottom:10px;">{{ item.caption }}</textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          {% for tag in item.hashtags|fromjson %}
+            <span style="font-size:12px;color:var(--teal);">{{ tag }}</span>
+          {% endfor %}
+        </div>
+        <button type="submit" class="btn-secondary btn-small">Save edits</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">
+  <h3>No content generated yet</h3>
+  <p style="margin-bottom:20px;">Click "Generate calendar" to create an AI-powered week of content for {{ client.business_name }}.</p>
+</div>
+{% endif %}
+
+{% endblock %}
