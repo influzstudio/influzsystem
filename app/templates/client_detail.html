@@ -23,9 +23,17 @@
   </div>
 </div>
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-  <h2 style="font-size:20px;font-weight:600;">Content calendar — this week</h2>
-  <form action="/client/{{ client.id }}/generate" method="POST">
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap;gap:16px;">
+  <h2 style="font-size:20px;font-weight:600;">Content calendar</h2>
+  <form action="/client/{{ client.id }}/generate" method="POST" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+    <div style="margin:0;">
+      <label style="margin-bottom:6px;">Start date</label>
+      <input type="date" name="start_date" value="{{ today }}" style="margin:0;width:160px;">
+    </div>
+    <div style="margin:0;">
+      <label style="margin-bottom:6px;">Days</label>
+      <input type="number" name="num_days" value="60" min="7" max="60" style="margin:0;width:80px;">
+    </div>
     <button type="submit" class="btn">
       {% if content_items %}Regenerate calendar{% else %}Generate calendar{% endif %} ✦
     </button>
@@ -33,44 +41,126 @@
 </div>
 
 {% if content_items %}
-<div style="display:grid;gap:16px;">
-  {% for item in content_items %}
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <span class="badge">{{ item.day_label }}</span>
-        <span class="badge badge-muted">{{ item.post_type }}</span>
-        {% if item.theme %}<span style="color:var(--muted);font-size:13px;">{{ item.theme }}</span>{% endif %}
+
+<div class="card" style="margin-bottom:32px;">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;">Estimated cost — {{ cost_summary.total_posts }} posts over period</p>
+  <div class="cost-summary">
+    <div class="total">₹{{ "{:,.0f}".format(cost_summary.total) }}</div>
+    <div class="cost-breakdown">
+      {% for ptype, amount in cost_summary.by_type.items() %}
+      <span>{{ cost_summary.counts_by_type[ptype] }}&times; {{ ptype }} — <b>₹{{ "{:,.0f}".format(amount) }}</b></span>
+      {% endfor %}
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--muted);margin-top:12px;">
+    Rates: <a href="/settings/pricing" style="color:var(--teal);">edit per-platform rates →</a>
+  </p>
+</div>
+
+{% for month in months %}
+<div class="cal-month">
+  <h3>{{ month.label }}</h3>
+  <div class="cal-grid">
+    {% for wd in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+    <div class="cal-weekday">{{ wd }}</div>
+    {% endfor %}
+    {% for week in month.weeks %}
+      {% for cell in week %}
+        {% if cell %}
+        <div class="cal-cell">
+          <div class="date-num">{{ cell.date.day }}</div>
+          {% for item in cell.posts %}
+          <div class="cal-post status-{{ item.status }}" onclick="toggleDetail({{ item.id }})">
+            <div class="ptype">{{ item.post_type }}</div>
+            <div class="platforms">{{ item.platforms|fromjson|join(', ') }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cal-cell empty"></div>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+<!-- Hidden detail panels, shown via JS toggle -->
+{% for item in content_items %}
+<div class="post-detail" id="detail-{{ item.id }}" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+    <div>
+      <span class="badge">{{ item.post_date.strftime('%d %b %Y') }}</span>
+      {% if item.status == 'approved' %}
+        <span class="badge" style="background:rgba(45,212,191,0.25);margin-left:6px;">✓ Approved</span>
+      {% endif %}
+    </div>
+    <div style="font-size:13px;color:var(--muted);">Cost: <b style="color:var(--ink);">₹{{ "{:,.0f}".format(item_costs[item.id]) }}</b></div>
+  </div>
+
+  <form action="/content/{{ item.id }}/update" method="POST">
+    <input type="hidden" name="post_date" value="{{ item.post_date.strftime('%Y-%m-%d') }}">
+
+    <div class="grid-2">
+      <div>
+        <label>Post type</label>
+        <select name="post_type">
+          {% for pt in post_types %}
+          <option value="{{ pt }}" {% if pt == item.post_type %}selected{% endif %}>{{ pt }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div>
-        {% if item.status == 'approved' %}
-          <span class="badge" style="background:rgba(45,212,191,0.25);">✓ Approved</span>
-        {% else %}
-          <form action="/content/{{ item.id }}/approve" method="POST" style="display:inline;">
-            <button type="submit" class="btn btn-small">Approve</button>
-          </form>
-        {% endif %}
+        <label>Platforms</label>
+        <div class="platform-checks">
+          {% set selected_platforms = item.platforms|fromjson %}
+          <label><input type="checkbox" name="platforms" value="instagram" {% if 'instagram' in selected_platforms %}checked{% endif %}> Instagram</label>
+          <label><input type="checkbox" name="platforms" value="facebook" {% if 'facebook' in selected_platforms %}checked{% endif %}> Facebook</label>
+        </div>
       </div>
     </div>
 
-    <form action="/content/{{ item.id }}/update" method="POST">
-      <textarea name="caption" style="margin-bottom:10px;">{{ item.caption }}</textarea>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          {% for tag in item.hashtags|fromjson %}
-            <span style="font-size:12px;color:var(--teal);">{{ tag }}</span>
-          {% endfor %}
-        </div>
-        <button type="submit" class="btn-secondary btn-small">Save edits</button>
-      </div>
-    </form>
-  </div>
-  {% endfor %}
+    {% if item.theme %}<p style="font-size:13px;color:var(--muted);margin-bottom:8px;">Theme: {{ item.theme }}</p>{% endif %}
+
+    <label>Caption</label>
+    <textarea name="caption" style="min-height:120px;">{{ item.caption }}</textarea>
+
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+      {% for tag in item.hashtags|fromjson %}
+        <span style="font-size:12px;color:var(--teal);">{{ tag }}</span>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex;gap:12px;">
+      <button type="submit" class="btn btn-small">Save changes</button>
+      {% if item.status != 'approved' %}
+      <button type="submit" form="approve-{{ item.id }}" class="btn-secondary btn-small">Approve</button>
+      {% endif %}
+      <button type="button" class="btn-secondary btn-small" onclick="toggleDetail({{ item.id }})">Close</button>
+    </div>
+  </form>
+  <form action="/content/{{ item.id }}/approve" method="POST" id="approve-{{ item.id }}" style="display:none;"></form>
 </div>
+{% endfor %}
+
+<script>
+function toggleDetail(id){
+  document.querySelectorAll('.post-detail').forEach(el => {
+    if(el.id !== 'detail-' + id) el.style.display = 'none';
+  });
+  const el = document.getElementById('detail-' + id);
+  const isOpen = el.style.display === 'block';
+  el.style.display = isOpen ? 'none' : 'block';
+  if(!isOpen){
+    el.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+}
+</script>
+
 {% else %}
 <div class="card empty-state">
   <h3>No content generated yet</h3>
-  <p style="margin-bottom:20px;">Click "Generate calendar" to create an AI-powered week of content for {{ client.business_name }}.</p>
+  <p style="margin-bottom:20px;">Set a start date and click "Generate calendar" to create an AI-powered 60-day content plan for {{ client.business_name }}.</p>
 </div>
 {% endif %}
 

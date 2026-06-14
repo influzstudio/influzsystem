@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -28,9 +28,9 @@ class ContentItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    day_index = Column(Integer, default=0)
-    day_label = Column(String, default="")
-    post_type = Column(String, default="Post")
+    post_date = Column(Date, nullable=False)
+    post_type = Column(String, default="Post")  # Story, Post, Carousel, Reel
+    platforms = Column(Text, default="[]")  # JSON list e.g. ["instagram","facebook"]
     theme = Column(String, default="")
     caption = Column(Text, default="")
     hashtags = Column(Text, default="[]")
@@ -38,3 +38,12 @@ class ContentItem(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     client = relationship("Client", back_populates="content_items")
+
+
+class PricingRate(Base):
+    """Global default rates per post type, per platform. Single row per post_type."""
+    __tablename__ = "pricing_rates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    post_type = Column(String, unique=True, nullable=False)  # Story, Post, Carousel, Reel
+    rate_per_platform = Column(Float, nullable=False)

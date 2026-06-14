@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Pricing settings — Influz Studio{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Settings</div>
+<h1 class="page-title">Pricing rates</h1>
+
+<p style="color:var(--muted);margin-bottom:24px;max-width:520px;">
+  Set your rate per post, per platform. A post sent to two platforms (e.g. Instagram + Facebook)
+  costs 2&times; the rate shown here. These rates apply across all clients and are used to
+  calculate the estimated cost for each generated calendar.
+</p>
+
+<div class="card" style="max-width:480px;">
+  <form action="/settings/pricing/update" method="POST">
+    {% for rate in rates %}
+    <label for="rate_{{ rate.post_type }}">{{ rate.post_type }} — rate per platform (₹)</label>
+    <input type="number" step="1" min="0" id="rate_{{ rate.post_type }}" name="rate_{{ rate.post_type }}" value="{{ rate.rate_per_platform|int }}">
+    {% endfor %}
+
+    <button type="submit" class="btn">Save rates →</button>
+  </form>
+</div>
+
+<p style="color:var(--muted);font-size:13px;margin-top:20px;">
+  Note: changing rates here updates cost estimates for newly viewed calendars immediately.
+  Existing client calendars recalculate automatically based on these rates.
+</p>
+
+{% endblock %}
