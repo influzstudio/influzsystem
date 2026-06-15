@@ -1,25 +1,30 @@
 import os
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import anthropic
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 SYSTEM_PROMPT = """You are a social media content strategist working for Influz Studio, \
 an AI-powered social media management studio. Generate a content calendar for a client \
-business covering exactly {num_days} consecutive days, starting from {start_date}.
+business covering a {num_days}-day period starting from {start_date} (inclusive), but \
+containing only {num_posts} posts total - the client's monthly package covers a limited \
+number of posts, so posts should be spaced out across the period rather than one per day.
 
-Return ONLY valid JSON - an array of exactly {num_days} objects, one per calendar day \
-(in order, starting from the start date), with this exact structure:
+Return ONLY valid JSON - an array of exactly {num_posts} objects, ordered chronologically, \
+with this exact structure:
 
 [
   {{
-    "post_type": "Story | Post | Carousel | Reel",
+    "post_date": "YYYY-MM-DD (a date within the {num_days}-day period starting {start_date}, \
+spaced out roughly evenly with natural variation - avoid clustering all posts together)",
+    "post_type": "Story | Post | Carousel | Reel | UGC",
     "platforms": ["instagram"] or ["facebook"] or ["instagram", "facebook"],
     "theme": "short theme name (3-6 words)",
     "caption": "a ready-to-use caption, 1-4 sentences, matching the brand voice. For Story \
-entries, keep this short (1 sentence or a prompt like a poll/question).",
+entries, keep this short (1 sentence or a prompt like a poll/question). For UGC entries, \
+write it as a repost/feature caption (e.g. thanking a customer, featuring their content).",
     "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"]
   }}
 ]
@@ -27,12 +32,13 @@ entries, keep this short (1 sentence or a prompt like a poll/question).",
 Do not include any text before or after the JSON array. Do not use markdown code fences.
 
 Guidelines:
-- Vary post types across the period - roughly: 40% Post, 25% Story, 20% Carousel, 15% Reel
-- Most posts should target Instagram only; periodically (roughly every 3rd-4th day) include \
-Facebook too (either alongside Instagram or alone), reflecting realistic cross-posting cadence
+- Vary post types: roughly 35% Post, 20% Story, 20% Carousel, 15% Reel, 10% UGC
+- Most posts should target Instagram only; occasionally include Facebook too (alongside \
+Instagram or alone), reflecting realistic cross-posting cadence
 - Captions must be specific to the business and niche, not generic filler
-- Build thematic variety across the {num_days} days - avoid repeating the same theme/idea
-- Hashtags should be relevant to the business niche and location where applicable"""
+- Build thematic variety across all {num_posts} posts - avoid repeating the same theme/idea
+- Hashtags should be relevant to the business niche and location where applicable
+- UGC posts should feel like genuine customer-content reposts, not promotional copy"""
 
 
 def _build_user_prompt(business_name: str, niche: str, brand_voice: str, goals: str) -> str:
@@ -45,19 +51,47 @@ def _build_user_prompt(business_name: str, niche: str, brand_voice: str, goals: 
     )
 
 
-def _fallback_calendar(business_name: str, niche: str, num_days: int) -> list[dict]:
+def _spaced_date(start_date: date, num_days: int, num_posts: int, index: int) -> date:
+    if num_posts <= 1:
+        offset = 0
+    else:
+        offset = round(index * (num_days - 1) / (num_posts - 1))
+    offset = max(0, min(offset, num_days - 1))
+    return start_date + timedelta(days=offset)
+
+
+def _fallback_calendar(business_name: str, niche: str, start_date: date, num_days: int, num_posts: int) -> list[dict]:
     """Used if the API call fails, so the UI never breaks."""
-    type_cycle = ["Post", "Story", "Carousel", "Reel", "Post", "Story"]
+    type_cycle = ["Post", "Story", "Carousel", "Reel", "UGC", "Post", "Story", "Carousel"]
     platform_cycle = [["instagram"], ["instagram"], ["instagram", "facebook"], ["instagram"]]
     items = []
-    for i in range(num_days):
+    for i in range(num_posts):
         items.append({
+            "post_date": _spaced_date(start_date, num_days, num_posts, i).isoformat(),
             "post_type": type_cycle[i % len(type_cycle)],
             "platforms": platform_cycle[i % len(platform_cycle)],
             "theme": f"{niche.title()} content idea {i + 1}",
-            "caption": f"Sample caption for {business_name} (day {i + 1}) - edit before approving.",
+            "caption": f"Sample caption for {business_name} (post {i + 1}) - edit before approving.",
             "hashtags": ["#socialmedia", f"#{niche.replace(' ', '')}", "#influzstudio"],
         })
+    return items
+
+
+def _validate_dates(items: list[dict], start_date: date, num_days: int) -> list[dict]:
+    """Ensure every item has a valid post_date within range; fix or reassign if not."""
+    end_date_excl = start_date + timedelta(days=num_days)
+    for i, item in enumerate(items):
+        valid = False
+        raw = item.get("post_date", "")
+        try:
+            d = datetime.strptime(raw, "%Y-%m-%d").date()
+            if start_date <= d < end_date_excl:
+                valid = True
+        except (ValueError, TypeError):
+            pass
+        if not valid:
+            d = _spaced_date(start_date, num_days, len(items), i)
+        item["post_date"] = d.isoformat()
     return items
 
 
@@ -68,19 +102,19 @@ def generate_content_calendar(
     goals: str,
     start_date: date,
     num_days: int = 60,
+    num_posts: int = 32,
 ) -> list[dict]:
-    """Generate a content calendar covering num_days starting from start_date.
-
-    Returns a list of dicts, each containing post_date plus the AI-generated fields.
-    """
+    """Generate num_posts content entries spread across num_days starting from start_date."""
     if not os.getenv("ANTHROPIC_API_KEY"):
-        items = _fallback_calendar(business_name, niche, num_days)
+        items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
     else:
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=16000,
-                system=SYSTEM_PROMPT.format(num_days=num_days, start_date=start_date.isoformat()),
+                max_tokens=8000,
+                system=SYSTEM_PROMPT.format(
+                    num_days=num_days, num_posts=num_posts, start_date=start_date.isoformat()
+                ),
                 messages=[
                     {
                         "role": "user",
@@ -96,18 +130,16 @@ def generate_content_calendar(
 
             items = json.loads(raw_text)
             if not (isinstance(items, list) and len(items) > 0):
-                items = _fallback_calendar(business_name, niche, num_days)
-            elif len(items) < num_days:
-                # Pad with fallback items if the model returned fewer than requested
-                items += _fallback_calendar(business_name, niche, num_days - len(items))
-            elif len(items) > num_days:
-                items = items[:num_days]
+                items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
+            elif len(items) < num_posts:
+                extra = _fallback_calendar(business_name, niche, start_date, num_days, num_posts - len(items))
+                items += extra
+            elif len(items) > num_posts:
+                items = items[:num_posts]
 
         except Exception:
-            items = _fallback_calendar(business_name, niche, num_days)
+            items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
 
-    # Attach actual calendar dates
-    for i, item in enumerate(items):
-        item["post_date"] = (start_date + timedelta(days=i)).isoformat()
-
+    items = _validate_dates(items, start_date, num_days)
+    items.sort(key=lambda x: x["post_date"])
     return items

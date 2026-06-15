@@ -33,7 +33,51 @@
     <label for="notes">Additional notes (optional)</label>
     <textarea id="notes" name="notes" placeholder="Anything else worth knowing — past campaigns, preferences, things to avoid"></textarea>
 
+    <hr style="border:none;border-top:1px solid var(--line);margin:24px 0;">
+
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+      Package & pricing — set once now. These rates apply to this client's calendars
+      and aren't editable from the calendar view afterward.
+    </p>
+
+    <label for="posts_per_month">Posts per month (15–16 typical)</label>
+    <input type="number" id="posts_per_month" name="posts_per_month" min="1" max="60" value="16">
+
+    <div class="grid-2">
+      <div>
+        <label for="rate_story">Story — rate per platform (₹)</label>
+        <input type="number" id="rate_story" name="rate_story" min="0" step="1" value="150">
+      </div>
+      <div>
+        <label for="rate_post">Post — rate per platform (₹)</label>
+        <input type="number" id="rate_post" name="rate_post" min="0" step="1" value="300">
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label for="rate_carousel">Carousel — rate per platform (₹)</label>
+        <input type="number" id="rate_carousel" name="rate_carousel" min="0" step="1" value="500">
+      </div>
+      <div>
+        <label for="rate_reel">Reel — rate per platform (₹)</label>
+        <input type="number" id="rate_reel" name="rate_reel" min="0" step="1" value="800">
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label for="rate_ugc">UGC — rate per platform (₹)</label>
+        <input type="number" id="rate_ugc" name="rate_ugc" min="0" step="1" value="600">
+      </div>
+      <div>
+        <label for="rate_on_demand">On-demand / festival post — flat rate (₹)</label>
+        <input type="number" id="rate_on_demand" name="rate_on_demand" min="0" step="1" value="1000">
+      </div>
+    </div>
+
     <button type="submit" class="btn">Save client →</button>
+  </form>
 </div>
 
 {% endblock %}

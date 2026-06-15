@@ -19,6 +19,8 @@
     <p style="margin-bottom:16px;">{{ client.instagram_handle or '—' }}</p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Facebook</p>
     <p style="margin-bottom:16px;">{{ client.facebook_page or '—' }}</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Package</p>
+    <p style="margin-bottom:16px;">{{ client.posts_per_month }} posts / month</p>
     <a href="/client/{{ client.id }}/analytics" class="btn-secondary" style="display:inline-block;text-align:center;">View analytics dashboard →</a>
   </div>
 </div>
@@ -31,8 +33,8 @@
       <input type="date" name="start_date" value="{{ today }}" style="margin:0;width:160px;">
     </div>
     <div style="margin:0;">
-      <label style="margin-bottom:6px;">Days</label>
-      <input type="number" name="num_days" value="60" min="7" max="60" style="margin:0;width:80px;">
+      <label style="margin-bottom:6px;">Period (days)</label>
+      <input type="number" name="num_days" value="60" min="7" max="60" style="margin:0;width:90px;">
     </div>
     <button type="submit" class="btn">
       {% if content_items %}Regenerate calendar{% else %}Generate calendar{% endif %} ✦
@@ -43,18 +45,21 @@
 {% if content_items %}
 
 <div class="card" style="margin-bottom:32px;">
-  <p style="font-size:13px;color:var(--muted);margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;">Estimated cost — {{ cost_summary.total_posts }} posts over period</p>
-  <div class="cost-summary">
-    <div class="total">₹{{ "{:,.0f}".format(cost_summary.total) }}</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;">Estimated cost</p>
+  <div class="cost-summary" style="margin-bottom:12px;">
+    <div class="total">₹{{ "{:,.0f}".format(cost_summary.grand_total) }}</div>
     <div class="cost-breakdown">
-      {% for ptype, amount in cost_summary.by_type.items() %}
-      <span>{{ cost_summary.counts_by_type[ptype] }}&times; {{ ptype }} — <b>₹{{ "{:,.0f}".format(amount) }}</b></span>
-      {% endfor %}
+      <span>{{ cost_summary.regular_posts }}&times; package posts — <b>₹{{ "{:,.0f}".format(cost_summary.regular_total) }}</b></span>
+      {% if cost_summary.on_demand_count > 0 %}
+      <span>{{ cost_summary.on_demand_count }}&times; on-demand — <b>₹{{ "{:,.0f}".format(cost_summary.on_demand_total) }}</b></span>
+      {% endif %}
     </div>
   </div>
-  <p style="font-size:12px;color:var(--muted);margin-top:12px;">
-    Rates: <a href="/settings/pricing" style="color:var(--teal);">edit per-platform rates →</a>
-  </p>
+  <div class="cost-breakdown">
+    {% for ptype, amount in cost_summary.by_type.items() %}
+    <span>{{ cost_summary.counts_by_type[ptype] }}&times; {{ ptype }} — <b>₹{{ "{:,.0f}".format(amount) }}</b></span>
+    {% endfor %}
+  </div>
 </div>
 
 {% for month in months %}
@@ -70,8 +75,8 @@
         <div class="cal-cell">
           <div class="date-num">{{ cell.date.day }}</div>
           {% for item in cell.posts %}
-          <div class="cal-post status-{{ item.status }}" onclick="toggleDetail({{ item.id }})">
-            <div class="ptype">{{ item.post_type }}</div>
+          <div class="cal-post status-{{ item.status }}{% if item.is_on_demand %} on-demand{% endif %}" onclick="toggleDetail({{ item.id }})">
+            <div class="ptype">{{ item.post_type }}{% if item.is_on_demand %} ✦{% endif %}</div>
             <div class="platforms">{{ item.platforms|fromjson|join(', ') }}</div>
           </div>
           {% endfor %}
@@ -91,6 +96,9 @@
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
     <div>
       <span class="badge">{{ item.post_date.strftime('%d %b %Y') }}</span>
+      {% if item.is_on_demand %}
+        <span class="badge" style="background:rgba(251,191,36,0.18);color:#FBBF24;margin-left:6px;">✦ On-demand</span>
+      {% endif %}
       {% if item.status == 'approved' %}
         <span class="badge" style="background:rgba(45,212,191,0.25);margin-left:6px;">✓ Approved</span>
       {% endif %}
@@ -131,15 +139,19 @@
       {% endfor %}
     </div>
 
-    <div style="display:flex;gap:12px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <button type="submit" class="btn btn-small">Save changes</button>
       {% if item.status != 'approved' %}
       <button type="submit" form="approve-{{ item.id }}" class="btn-secondary btn-small">Approve</button>
+      {% endif %}
+      {% if item.is_on_demand %}
+      <button type="submit" form="delete-{{ item.id }}" class="btn-secondary btn-small" style="color:#F87171;border-color:rgba(248,113,113,0.4);">Remove</button>
       {% endif %}
       <button type="button" class="btn-secondary btn-small" onclick="toggleDetail({{ item.id }})">Close</button>
     </div>
   </form>
   <form action="/content/{{ item.id }}/approve" method="POST" id="approve-{{ item.id }}" style="display:none;"></form>
+  <form action="/content/{{ item.id }}/delete" method="POST" id="delete-{{ item.id }}" style="display:none;"></form>
 </div>
 {% endfor %}
 
@@ -155,13 +167,58 @@ function toggleDetail(id){
     el.scrollIntoView({behavior:'smooth', block:'center'});
   }
 }
+function toggleAddOnDemand(){
+  const el = document.getElementById('add-on-demand-form');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+  if(el.style.display === 'block') el.scrollIntoView({behavior:'smooth', block:'center'});
+}
 </script>
 
 {% else %}
 <div class="card empty-state">
   <h3>No content generated yet</h3>
-  <p style="margin-bottom:20px;">Set a start date and click "Generate calendar" to create an AI-powered 60-day content plan for {{ client.business_name }}.</p>
+  <p style="margin-bottom:20px;">Set a start date and click "Generate calendar" to create an AI-powered plan for {{ client.business_name }} — {{ client.posts_per_month }} posts/month, spaced across the period.</p>
 </div>
 {% endif %}
+
+<!-- On-demand / festival post -->
+<div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--line);">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <div>
+      <h2 style="font-size:18px;font-weight:600;margin-bottom:4px;">On-demand & festival posts</h2>
+      <p style="font-size:13px;color:var(--muted);">Charged separately at the flat on-demand rate (₹{{ "{:,.0f}".format(client.rate_on_demand) }} per post), regardless of type or platforms.</p>
+    </div>
+    <button type="button" class="btn-secondary" onclick="toggleAddOnDemand()">+ Add on-demand post</button>
+  </div>
+
+  <div class="card" id="add-on-demand-form" style="display:none;margin-top:16px;">
+    <form action="/client/{{ client.id }}/add-on-demand" method="POST">
+      <div class="grid-2">
+        <div>
+          <label>Date</label>
+          <input type="date" name="post_date" value="{{ today }}" required>
+        </div>
+        <div>
+          <label>Post type</label>
+          <select name="post_type">
+            {% for pt in post_types %}
+            <option value="{{ pt }}">{{ pt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>Platforms</label>
+      <div class="platform-checks" style="margin-bottom:20px;">
+        <label><input type="checkbox" name="platforms" value="instagram" checked> Instagram</label>
+        <label><input type="checkbox" name="platforms" value="facebook"> Facebook</label>
+      </div>
+      <label>Theme / occasion</label>
+      <input type="text" name="theme" placeholder="e.g. Diwali special offer">
+      <label>Caption</label>
+      <textarea name="caption" placeholder="Write the caption for this post"></textarea>
+      <button type="submit" class="btn">Add post — ₹{{ "{:,.0f}".format(client.rate_on_demand) }}</button>
+    </form>
+  </div>
+</div>
 
 {% endblock %}
