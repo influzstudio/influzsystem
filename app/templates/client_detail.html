@@ -8,20 +8,21 @@
 <div class="grid-2" style="margin-bottom:32px;">
   <div class="card">
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Niche</p>
-    <p style="margin-bottom:16px;">{{ client.niche }}</p>
+    <p style="margin-bottom:12px;">{{ client.niche }}{% if client.city %} · {{ client.city }}{% endif %}</p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Brand voice</p>
-    <p style="margin-bottom:16px;">{{ client.brand_voice }}</p>
+    <p style="margin-bottom:12px;">{{ client.brand_voice }}</p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Goals</p>
     <p>{{ client.goals }}</p>
   </div>
   <div class="card">
-    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Instagram</p>
-    <p style="margin-bottom:16px;">{{ client.instagram_handle or '—' }}</p>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Facebook</p>
-    <p style="margin-bottom:16px;">{{ client.facebook_page or '—' }}</p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Package</p>
-    <p style="margin-bottom:16px;">{{ client.posts_per_month }} posts / month</p>
-    <a href="/client/{{ client.id }}/analytics" class="btn-secondary" style="display:inline-block;text-align:center;">View analytics dashboard →</a>
+    <p style="margin-bottom:12px;">{{ client.posts_per_month }} posts/month</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Instagram / Facebook</p>
+    <p style="margin-bottom:16px;">{{ client.instagram_handle or '—' }} / {{ client.facebook_page or '—' }}</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="/client/{{ client.id }}/analytics" class="btn-secondary btn-small">Analytics →</a>
+      <a href="/client/{{ client.id }}/export" class="btn-secondary btn-small">Export Excel ↓</a>
+    </div>
   </div>
 </div>
 
@@ -37,7 +38,7 @@
       <input type="number" name="num_days" value="60" min="7" max="60" style="margin:0;width:90px;">
     </div>
     <button type="submit" class="btn">
-      {% if content_items %}Regenerate calendar{% else %}Generate calendar{% endif %} ✦
+      {% if content_items %}Regenerate{% else %}Generate calendar{% endif %} ✦
     </button>
   </form>
 </div>
@@ -78,6 +79,7 @@
           <div class="cal-post status-{{ item.status }}{% if item.is_on_demand %} on-demand{% endif %}" onclick="toggleDetail({{ item.id }})">
             <div class="ptype">{{ item.post_type }}{% if item.is_on_demand %} ✦{% endif %}</div>
             <div class="platforms">{{ item.platforms|fromjson|join(', ') }}</div>
+            {% if item.topic %}<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.3;">{{ item.topic[:30] }}{% if item.topic|length > 30 %}…{% endif %}</div>{% endif %}
           </div>
           {% endfor %}
         </div>
@@ -90,18 +92,14 @@
 </div>
 {% endfor %}
 
-<!-- Hidden detail panels, shown via JS toggle -->
 {% for item in content_items %}
 <div class="post-detail" id="detail-{{ item.id }}" style="display:none;">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
-    <div>
-      <span class="badge">{{ item.post_date.strftime('%d %b %Y') }}</span>
-      {% if item.is_on_demand %}
-        <span class="badge" style="background:rgba(251,191,36,0.18);color:#FBBF24;margin-left:6px;">✦ On-demand</span>
-      {% endif %}
-      {% if item.status == 'approved' %}
-        <span class="badge" style="background:rgba(45,212,191,0.25);margin-left:6px;">✓ Approved</span>
-      {% endif %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span class="badge">{{ item.post_date.strftime('%d %b %Y, %A') }}</span>
+      <span class="badge badge-muted">{{ item.post_type }}</span>
+      {% if item.is_on_demand %}<span class="badge" style="background:rgba(251,191,36,0.18);color:#FBBF24;">✦ On-demand</span>{% endif %}
+      {% if item.status == 'approved' %}<span class="badge" style="background:rgba(45,212,191,0.25);">✓ Approved</span>{% endif %}
     </div>
     <div style="font-size:13px;color:var(--muted);">Cost: <b style="color:var(--ink);">₹{{ "{:,.0f}".format(item_costs[item.id]) }}</b></div>
   </div>
@@ -121,25 +119,42 @@
       <div>
         <label>Platforms</label>
         <div class="platform-checks">
-          {% set selected_platforms = item.platforms|fromjson %}
-          <label><input type="checkbox" name="platforms" value="instagram" {% if 'instagram' in selected_platforms %}checked{% endif %}> Instagram</label>
-          <label><input type="checkbox" name="platforms" value="facebook" {% if 'facebook' in selected_platforms %}checked{% endif %}> Facebook</label>
+          {% set sp = item.platforms|fromjson %}
+          <label><input type="checkbox" name="platforms" value="instagram" {% if 'instagram' in sp %}checked{% endif %}> Instagram</label>
+          <label><input type="checkbox" name="platforms" value="facebook" {% if 'facebook' in sp %}checked{% endif %}> Facebook</label>
         </div>
       </div>
     </div>
 
-    {% if item.theme %}<p style="font-size:13px;color:var(--muted);margin-bottom:8px;">Theme: {{ item.theme }}</p>{% endif %}
+    <label>Topic <span style="color:var(--muted);font-weight:400;">(creative angle)</span></label>
+    <input type="text" name="topic" value="{{ item.topic }}">
 
-    <label>Caption</label>
-    <textarea name="caption" style="min-height:120px;">{{ item.caption }}</textarea>
-
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
-      {% for tag in item.hashtags|fromjson %}
-        <span style="font-size:12px;color:var(--teal);">{{ tag }}</span>
-      {% endfor %}
+    <div class="grid-2">
+      <div>
+        <label>Cover text <span style="color:var(--muted);font-weight:400;">(headline on image)</span></label>
+        <input type="text" name="cover_text" value="{{ item.cover_text }}">
+      </div>
+      <div>
+        <label>Image text <span style="color:var(--muted);font-weight:400;">(supporting visual copy)</span></label>
+        <input type="text" name="image_text" value="{{ item.image_text }}">
+      </div>
     </div>
 
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+    <label>Caption / hashtags <span style="color:var(--muted);font-weight:400;">(ready to post)</span></label>
+    <textarea name="caption" style="min-height:140px;">{{ item.caption }}</textarea>
+
+    <div class="grid-2">
+      <div>
+        <label>Reference note <span style="color:var(--muted);font-weight:400;">(visual direction)</span></label>
+        <input type="text" name="reference_note" value="{{ item.reference_note }}">
+      </div>
+      <div>
+        <label>Client feedback</label>
+        <input type="text" name="client_feedback" value="{{ item.client_feedback }}">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
       <button type="submit" class="btn btn-small">Save changes</button>
       {% if item.status != 'approved' %}
       <button type="submit" form="approve-{{ item.id }}" class="btn-secondary btn-small">Approve</button>
@@ -157,36 +172,33 @@
 
 <script>
 function toggleDetail(id){
-  document.querySelectorAll('.post-detail').forEach(el => {
-    if(el.id !== 'detail-' + id) el.style.display = 'none';
+  document.querySelectorAll('.post-detail').forEach(el=>{
+    if(el.id!=='detail-'+id) el.style.display='none';
   });
-  const el = document.getElementById('detail-' + id);
-  const isOpen = el.style.display === 'block';
-  el.style.display = isOpen ? 'none' : 'block';
-  if(!isOpen){
-    el.scrollIntoView({behavior:'smooth', block:'center'});
-  }
+  const el=document.getElementById('detail-'+id);
+  const isOpen=el.style.display==='block';
+  el.style.display=isOpen?'none':'block';
+  if(!isOpen) el.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function toggleAddOnDemand(){
-  const el = document.getElementById('add-on-demand-form');
-  el.style.display = el.style.display === 'block' ? 'none' : 'block';
-  if(el.style.display === 'block') el.scrollIntoView({behavior:'smooth', block:'center'});
+  const el=document.getElementById('add-on-demand-form');
+  el.style.display=el.style.display==='block'?'none':'block';
+  if(el.style.display==='block') el.scrollIntoView({behavior:'smooth',block:'center'});
 }
 </script>
 
 {% else %}
 <div class="card empty-state">
   <h3>No content generated yet</h3>
-  <p style="margin-bottom:20px;">Set a start date and click "Generate calendar" to create an AI-powered plan for {{ client.business_name }} — {{ client.posts_per_month }} posts/month, spaced across the period.</p>
+  <p style="margin-bottom:20px;">Set a start date and click "Generate calendar" to create an AI-powered plan for {{ client.business_name }} — {{ client.posts_per_month }} posts/month.</p>
 </div>
 {% endif %}
 
-<!-- On-demand / festival post -->
 <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--line);">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
     <div>
       <h2 style="font-size:18px;font-weight:600;margin-bottom:4px;">On-demand & festival posts</h2>
-      <p style="font-size:13px;color:var(--muted);">Charged separately at the flat on-demand rate (₹{{ "{:,.0f}".format(client.rate_on_demand) }} per post), regardless of type or platforms.</p>
+      <p style="font-size:13px;color:var(--muted);">Flat rate: ₹{{ "{:,.0f}".format(client.rate_on_demand) }}/post, regardless of type or platforms.</p>
     </div>
     <button type="button" class="btn-secondary" onclick="toggleAddOnDemand()">+ Add on-demand post</button>
   </div>
@@ -212,10 +224,12 @@ function toggleAddOnDemand(){
         <label><input type="checkbox" name="platforms" value="instagram" checked> Instagram</label>
         <label><input type="checkbox" name="platforms" value="facebook"> Facebook</label>
       </div>
-      <label>Theme / occasion</label>
-      <input type="text" name="theme" placeholder="e.g. Diwali special offer">
+      <label>Topic / occasion</label>
+      <input type="text" name="topic" placeholder="e.g. Diwali special offer">
+      <label>Cover text</label>
+      <input type="text" name="cover_text" placeholder="Headline text for the image">
       <label>Caption</label>
-      <textarea name="caption" placeholder="Write the caption for this post"></textarea>
+      <textarea name="caption" placeholder="Ready-to-post caption + hashtags"></textarea>
       <button type="submit" class="btn">Add post — ₹{{ "{:,.0f}".format(client.rate_on_demand) }}</button>
     </form>
   </div>

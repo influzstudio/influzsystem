@@ -1,11 +1,16 @@
 from datetime import date, datetime
 import json
+import io
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+import openpyxl
+from openpyxl.styles import (
+    Font, PatternFill, Alignment, Border, Side
+)
 
 from app.database import SessionLocal, engine, Base
 from app.models.client import Client, ContentItem
@@ -31,9 +36,7 @@ def get_db():
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
     clients = db.query(Client).order_by(Client.created_at.desc()).all()
-    return templates.TemplateResponse(
-        "index.html", {"request": request, "clients": clients}
-    )
+    return templates.TemplateResponse("index.html", {"request": request, "clients": clients})
 
 
 @app.get("/onboard", response_class=HTMLResponse)
@@ -48,6 +51,7 @@ def onboard_submit(
     niche: str = Form(...),
     brand_voice: str = Form(...),
     goals: str = Form(...),
+    city: str = Form(""),
     instagram_handle: str = Form(""),
     facebook_page: str = Form(""),
     notes: str = Form(""),
@@ -65,6 +69,7 @@ def onboard_submit(
         niche=niche,
         brand_voice=brand_voice,
         goals=goals,
+        city=city,
         instagram_handle=instagram_handle,
         facebook_page=facebook_page,
         notes=notes,
@@ -87,20 +92,15 @@ def client_detail(request: Request, client_id: int, db: Session = Depends(get_db
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-
     content_items = (
         db.query(ContentItem)
         .filter(ContentItem.client_id == client_id)
         .order_by(ContentItem.post_date)
         .all()
     )
-
     cost_summary = calculate_calendar_cost(content_items, client)
-
     item_costs = {item.id: calculate_item_cost(item, client) for item in content_items}
-
     months = build_calendar_months(content_items)
-
     return templates.TemplateResponse(
         "client_detail.html",
         {
@@ -117,51 +117,29 @@ def client_detail(request: Request, client_id: int, db: Session = Depends(get_db
 
 
 def build_calendar_months(content_items: list[ContentItem]):
-    """Group content items into a month-grid structure for calendar display.
-
-    Returns a list of month dicts: {label, weeks: [[day_cell,...], ...]}
-    where each day_cell is {date, posts} or None for padding cells.
-    """
     if not content_items:
         return []
-
     items_by_date = {}
     for item in content_items:
         items_by_date.setdefault(item.post_date, []).append(item)
-
     start = min(items_by_date.keys())
     end = max(items_by_date.keys())
-
     months = []
     cursor = date(start.year, start.month, 1)
     end_month = date(end.year, end.month, 1)
     while cursor <= end_month:
         months.append((cursor.year, cursor.month))
-        if cursor.month == 12:
-            cursor = date(cursor.year + 1, 1, 1)
-        else:
-            cursor = date(cursor.year, cursor.month + 1, 1)
-
+        cursor = date(cursor.year + (cursor.month == 12), (cursor.month % 12) + 1, 1)
     month_data = []
     for year, month in months:
         first_day = date(year, month, 1)
-        if month == 12:
-            next_month = date(year + 1, 1, 1)
-        else:
-            next_month = date(year, month + 1, 1)
-        days_in_month = (next_month - first_day).days
-
-        leading_blanks = first_day.weekday()  # Mon=0..Sun=6
-
-        weeks = []
-        week = [None] * leading_blanks
+        next_month_date = date(year + (month == 12), (month % 12) + 1, 1)
+        days_in_month = (next_month_date - first_day).days
+        leading_blanks = first_day.weekday()
+        weeks, week = [], [None] * leading_blanks
         for day_num in range(1, days_in_month + 1):
             current = date(year, month, day_num)
-            cell = {
-                "date": current,
-                "posts": items_by_date.get(current, []),
-            }
-            week.append(cell)
+            week.append({"date": current, "posts": items_by_date.get(current, [])})
             if len(week) == 7:
                 weeks.append(week)
                 week = []
@@ -169,12 +147,7 @@ def build_calendar_months(content_items: list[ContentItem]):
             while len(week) < 7:
                 week.append(None)
             weeks.append(week)
-
-        month_data.append({
-            "label": first_day.strftime("%B %Y"),
-            "weeks": weeks,
-        })
-
+        month_data.append({"label": first_day.strftime("%B %Y"), "weeks": weeks})
     return month_data
 
 
@@ -188,22 +161,14 @@ def generate_calendar(
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-
-    # Clear existing non-approved, non-on-demand items before regenerating
     db.query(ContentItem).filter(
         ContentItem.client_id == client_id,
         ContentItem.status == "generated",
         ContentItem.is_on_demand == False,
     ).delete(synchronize_session=False)
     db.commit()
-
-    if start_date:
-        start = datetime.strptime(start_date, "%Y-%m-%d").date()
-    else:
-        start = date.today()
-
+    start = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else date.today()
     num_posts = max(1, round(client.posts_per_month * num_days / 30))
-
     items = generate_content_calendar(
         business_name=client.business_name,
         niche=client.niche,
@@ -212,23 +177,24 @@ def generate_calendar(
         start_date=start,
         num_days=num_days,
         num_posts=num_posts,
+        city=client.city,
     )
-
     for item in items:
-        content_item = ContentItem(
+        db.add(ContentItem(
             client_id=client.id,
             post_date=datetime.strptime(item["post_date"], "%Y-%m-%d").date(),
-            post_type=item.get("post_type", "Post"),
+            post_type=item.get("post_type", "Static"),
             platforms=json.dumps(item.get("platforms", ["instagram"])),
-            theme=item.get("theme", ""),
+            topic=item.get("topic", ""),
+            cover_text=item.get("cover_text", ""),
+            image_text=item.get("image_text", ""),
             caption=item.get("caption", ""),
-            hashtags=json.dumps(item.get("hashtags", [])),
+            hashtags=json.dumps([]),
+            reference_note=item.get("reference_note", ""),
             status="generated",
             is_on_demand=False,
-        )
-        db.add(content_item)
+        ))
     db.commit()
-
     return RedirectResponse(url=f"/client/{client_id}", status_code=303)
 
 
@@ -238,28 +204,27 @@ def add_on_demand(
     post_date: str = Form(...),
     post_type: str = Form(...),
     platforms: list[str] = Form([]),
-    theme: str = Form(""),
+    topic: str = Form(""),
+    cover_text: str = Form(""),
     caption: str = Form(""),
     db: Session = Depends(get_db),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-
-    content_item = ContentItem(
+    db.add(ContentItem(
         client_id=client.id,
         post_date=datetime.strptime(post_date, "%Y-%m-%d").date(),
         post_type=post_type,
         platforms=json.dumps(platforms),
-        theme=theme,
+        topic=topic,
+        cover_text=cover_text,
         caption=caption,
         hashtags=json.dumps([]),
         status="generated",
         is_on_demand=True,
-    )
-    db.add(content_item)
+    ))
     db.commit()
-
     return RedirectResponse(url=f"/client/{client_id}", status_code=303)
 
 
@@ -267,60 +232,231 @@ def add_on_demand(
 def approve_item(item_id: int, db: Session = Depends(get_db)):
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404, detail="Not found")
     item.status = "approved"
     db.commit()
-    return RedirectResponse(url=f"/client/{item.client_id}#post-{item_id}", status_code=303)
+    return RedirectResponse(url=f"/client/{item.client_id}", status_code=303)
 
 
 @app.post("/content/{item_id}/update")
 def update_item(
     item_id: int,
-    caption: str = Form(...),
+    post_date: str = Form(...),
     post_type: str = Form(...),
     platforms: list[str] = Form([]),
-    post_date: str = Form(...),
+    topic: str = Form(""),
+    cover_text: str = Form(""),
+    image_text: str = Form(""),
+    caption: str = Form(""),
+    reference_note: str = Form(""),
+    client_feedback: str = Form(""),
     db: Session = Depends(get_db),
 ):
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    item.caption = caption
+        raise HTTPException(status_code=404, detail="Not found")
+    item.post_date = datetime.strptime(post_date, "%Y-%m-%d").date()
     item.post_type = post_type
     item.platforms = json.dumps(platforms)
-    item.post_date = datetime.strptime(post_date, "%Y-%m-%d").date()
+    item.topic = topic
+    item.cover_text = cover_text
+    item.image_text = image_text
+    item.caption = caption
+    item.reference_note = reference_note
+    item.client_feedback = client_feedback
     db.commit()
-    return RedirectResponse(url=f"/client/{item.client_id}#post-{item_id}", status_code=303)
+    return RedirectResponse(url=f"/client/{item.client_id}", status_code=303)
 
 
 @app.post("/content/{item_id}/delete")
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404, detail="Not found")
     client_id = item.client_id
     db.delete(item)
     db.commit()
     return RedirectResponse(url=f"/client/{client_id}", status_code=303)
 
 
+@app.get("/client/{client_id}/export")
+def export_calendar(client_id: int, db: Session = Depends(get_db)):
+    """Export the content calendar as a professional branded Excel sheet."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Not found")
+    items = (
+        db.query(ContentItem)
+        .filter(ContentItem.client_id == client_id)
+        .order_by(ContentItem.post_date)
+        .all()
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Content Calendar"
+
+    # ── Styles ──────────────────────────────────────────────────────────────
+    dark_fill    = PatternFill("solid", fgColor="0E1822")
+    teal_fill    = PatternFill("solid", fgColor="2DD4BF")
+    soft_fill    = PatternFill("solid", fgColor="13202E")
+    amber_fill   = PatternFill("solid", fgColor="FBBF24")
+    white_font   = Font(name="Calibri", color="F4F7F6", bold=False, size=11)
+    dark_font    = Font(name="Calibri", color="0E1822", bold=True, size=11)
+    teal_font    = Font(name="Calibri", color="2DD4BF", bold=True, size=11)
+    muted_font   = Font(name="Calibri", color="7E8FA0", size=10)
+    header_font  = Font(name="Calibri", color="0E1822", bold=True, size=11)
+    title_font   = Font(name="Calibri", color="F4F7F6", bold=True, size=16)
+    thin_border  = Border(
+        bottom=Side(style="thin", color="2DD4BF"),
+        top=Side(style="thin", color="2DD4BF"),
+        left=Side(style="thin", color="13202E"),
+        right=Side(style="thin", color="13202E"),
+    )
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    # ── Title row ────────────────────────────────────────────────────────────
+    ws.merge_cells("A1:K1")
+    title_cell = ws["A1"]
+    title_cell.value = f"Influz Studio  ·  {client.business_name}  ·  Content Calendar"
+    title_cell.font = title_font
+    title_cell.fill = dark_fill
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 36
+
+    # Subtitle
+    ws.merge_cells("A2:K2")
+    sub_cell = ws["A2"]
+    sub_cell.value = f"Crafting Digital Influence  ·  {client.posts_per_month} posts/month  ·  influzstudio@gmail.com"
+    sub_cell.font = muted_font
+    sub_cell.fill = dark_fill
+    sub_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 20
+
+    # Blank spacer
+    ws.row_dimensions[3].height = 8
+    for col in range(1, 12):
+        ws.cell(row=3, column=col).fill = dark_fill
+
+    # ── Headers ───────────────────────────────────────────────────────────────
+    headers = [
+        "#", "Date", "Day", "Post Type", "Platforms",
+        "Topic", "Cover Text", "Image Text",
+        "Caption / Hashtags", "Reference Note", "Client Feedback"
+    ]
+    col_widths = [4, 13, 10, 11, 18, 28, 28, 28, 55, 32, 24]
+
+    for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
+        cell = ws.cell(row=4, column=col_idx)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = teal_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+        ws.column_dimensions[cell.column_letter].width = width
+    ws.row_dimensions[4].height = 22
+
+    # ── Data rows ─────────────────────────────────────────────────────────────
+    post_type_colors = {
+        "Reel":     "A78BFA",  # purple
+        "Carousel": "34D399",  # green
+        "Static":   "60A5FA",  # blue
+        "Story":    "F9A8D4",  # pink
+        "UGC":      "FCD34D",  # yellow
+    }
+
+    for row_idx, item in enumerate(items, start=5):
+        platforms = ", ".join(p.capitalize() for p in json.loads(item.platforms or "[]"))
+        day_name = item.post_date.strftime("%A")
+
+        row_fill = soft_fill if not item.is_on_demand else PatternFill("solid", fgColor="1C1505")
+
+        values = [
+            row_idx - 4,
+            item.post_date.strftime("%d-%b-%Y"),
+            day_name,
+            item.post_type,
+            platforms,
+            item.topic,
+            item.cover_text,
+            item.image_text,
+            item.caption,
+            item.reference_note,
+            item.client_feedback or "",
+        ]
+
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.fill = row_fill
+            cell.alignment = wrap
+            cell.border = thin_border
+
+            if col_idx == 1:  # post count
+                cell.font = teal_font
+                cell.alignment = Alignment(horizontal="center", vertical="top")
+            elif col_idx == 3:  # day name
+                cell.font = muted_font
+            elif col_idx == 4:  # post type — colored badge feel
+                ptype_color = post_type_colors.get(item.post_type, "7E8FA0")
+                cell.font = Font(name="Calibri", color=ptype_color, bold=True, size=11)
+                if item.is_on_demand:
+                    cell.font = Font(name="Calibri", color="FBBF24", bold=True, size=11)
+                    # Add ✦ marker
+                    cell.value = f"✦ {item.post_type}"
+            elif col_idx == 5:  # platforms
+                cell.font = Font(name="Calibri", color="A7E8DC", size=10)
+            elif col_idx in (6, 7, 8):  # topic/cover/image text
+                cell.font = Font(name="Calibri", color="F4F7F6", bold=(col_idx == 6), size=11)
+            elif col_idx == 9:  # caption
+                cell.font = Font(name="Calibri", color="D1D5DB", size=10)
+            elif col_idx == 10:  # reference
+                cell.font = Font(name="Calibri", color="7E8FA0", size=10, italic=True)
+            else:
+                cell.font = white_font
+
+        # Row height based on caption length
+        caption_len = len(item.caption)
+        ws.row_dimensions[row_idx].height = max(60, min(120, caption_len // 3))
+
+    # ── Status key / footer ───────────────────────────────────────────────────
+    footer_row = len(items) + 7
+    ws.merge_cells(f"A{footer_row}:K{footer_row}")
+    footer_cell = ws[f"A{footer_row}"]
+    footer_cell.value = f"Generated by Influz Studio  ·  {datetime.today().strftime('%d %b %Y')}  ·  Crafting Digital Influence"
+    footer_cell.font = Font(name="Calibri", color="2DD4BF", italic=True, size=10)
+    footer_cell.fill = dark_fill
+    footer_cell.alignment = Alignment(horizontal="center")
+
+    # Freeze panes below header
+    ws.freeze_panes = "A5"
+
+    # ── Stream as download ────────────────────────────────────────────────────
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    filename = f"Influz_Studio_{client.business_name.replace(' ', '_')}_Calendar.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @app.get("/client/{client_id}/analytics", response_class=HTMLResponse)
 def analytics(request: Request, client_id: int, db: Session = Depends(get_db)):
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+        raise HTTPException(status_code=404, detail="Not found")
     sample_data = {
-        "followers": 4820,
-        "followers_growth": "+6.2%",
-        "avg_reach": 2310,
-        "reach_growth": "+11.4%",
-        "engagement_rate": "4.8%",
-        "engagement_growth": "+0.7pt",
+        "followers": 4820, "followers_growth": "+6.2%",
+        "avg_reach": 2310, "reach_growth": "+11.4%",
+        "engagement_rate": "4.8%", "engagement_growth": "+0.7pt",
         "posts_published": 12,
         "weekly_reach": [1450, 1820, 2090, 2310],
         "weekly_engagement": [58, 79, 95, 112],
     }
     return templates.TemplateResponse(
-        "analytics.html",
-        {"request": request, "client": client, "data": sample_data},
+        "analytics.html", {"request": request, "client": client, "data": sample_data}
     )

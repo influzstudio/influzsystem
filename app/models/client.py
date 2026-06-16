@@ -13,12 +13,13 @@ class Client(Base):
     niche = Column(String, nullable=False)
     brand_voice = Column(String, nullable=False)
     goals = Column(Text, nullable=False)
+    city = Column(String, default="")
     instagram_handle = Column(String, default="")
     facebook_page = Column(String, default="")
     notes = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Package & pricing - set during onboarding, not edited from calendar view
+    # Package & pricing
     posts_per_month = Column(Integer, default=16)
     rate_story = Column(Float, default=150.0)
     rate_post = Column(Float, default=300.0)
@@ -38,13 +39,17 @@ class ContentItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
     post_date = Column(Date, nullable=False)
-    post_type = Column(String, default="Post")  # Story, Post, Carousel, Reel, UGC
-    platforms = Column(Text, default="[]")  # JSON list e.g. ["instagram","facebook"]
-    theme = Column(String, default="")
-    caption = Column(Text, default="")
-    hashtags = Column(Text, default="[]")
+    post_type = Column(String, default="Static")  # Static, Reel, Carousel, Story, UGC
+    platforms = Column(Text, default="[]")
+    topic = Column(String, default="")          # Creative angle
+    cover_text = Column(String, default="")     # Headline text on image
+    image_text = Column(String, default="")     # Supporting visual copy
+    caption = Column(Text, default="")          # Full ready-to-post caption + hashtags
+    hashtags = Column(Text, default="[]")       # Legacy field kept for compat
+    reference_note = Column(Text, default="")   # Visual reference direction
+    client_feedback = Column(Text, default="")  # Space for client notes
     status = Column(String, default="generated")  # generated, approved, scheduled, posted
-    is_on_demand = Column(Boolean, default=False)  # True = festival/special add-on post, flat rate
+    is_on_demand = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     client = relationship("Client", back_populates="content_items")
