@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Import calendar — {{ client.business_name }}{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Import calendar</div>
+<h1 class="page-title">{{ client.business_name }}</h1>
+
+<div class="card" style="max-width:560px;">
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;line-height:1.7;">
+    Upload an Excel file (.xlsx) with your content calendar. The importer looks for a header
+    row containing <b style="color:var(--ink);">Date</b> and reads these columns automatically:
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:24px;font-size:13px;">
+    {% for col in ["Date","Post Type","Platforms","Topic","Cover Text","Image Text","Caption / Hashtags","Reference Note"] %}
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 12px;color:var(--teal);">{{ col }}</div>
+    {% endfor %}
+  </div>
+
+  <p style="color:var(--muted);font-size:13px;margin-bottom:24px;">
+    Platforms column should contain "Instagram", "Facebook", or "LinkedIn" (or any combination).
+    Extra columns (like feedback, post count) are safely ignored.
+  </p>
+
+  <form action="/client/{{ client.id }}/import" method="POST" enctype="multipart/form-data">
+    <label for="file">Choose Excel file (.xlsx)</label>
+    <input type="file" id="file" name="file" accept=".xlsx" required
+      style="background:var(--bg);border:1px solid var(--line);border-radius:4px;
+             padding:12px 14px;color:var(--ink);font-size:14px;width:100%;margin-bottom:20px;">
+    <button type="submit" class="btn">Import calendar →</button>
+  </form>
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:var(--muted);">
+  ← <a href="/client/{{ client.id }}" style="color:var(--teal);">Back to {{ client.business_name }}</a>
+</p>
+
+{% endblock %}

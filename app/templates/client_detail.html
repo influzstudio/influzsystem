@@ -5,6 +5,13 @@
 <div class="eyebrow">Client profile</div>
 <h1 class="page-title">{{ client.business_name }}</h1>
 
+{% if request.query_params.get('imported') %}
+<div style="background:rgba(45,212,191,0.12);border:1px solid var(--teal);border-radius:6px;
+            padding:14px 20px;margin-bottom:24px;font-size:14px;color:var(--teal);">
+  ✓ Successfully imported {{ request.query_params.get('imported') }} posts from Excel.
+</div>
+{% endif %}
+
 <div class="grid-2" style="margin-bottom:32px;">
   <div class="card">
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Niche</p>
@@ -22,6 +29,7 @@
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <a href="/client/{{ client.id }}/analytics" class="btn-secondary btn-small">Analytics →</a>
       <a href="/client/{{ client.id }}/export" class="btn-secondary btn-small">Export Excel ↓</a>
+      <a href="/client/{{ client.id }}/import" class="btn-secondary btn-small">Import Excel ↑</a>
     </div>
   </div>
 </div>

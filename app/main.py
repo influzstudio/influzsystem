@@ -460,3 +460,142 @@ def analytics(request: Request, client_id: int, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         "analytics.html", {"request": request, "client": client, "data": sample_data}
     )
+
+
+# ── Excel import ──────────────────────────────────────────────────────────────
+from fastapi import UploadFile, File
+import openpyxl
+import io as _io
+
+@app.get("/client/{client_id}/import", response_class=HTMLResponse)
+def import_form(request: Request, client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return templates.TemplateResponse(
+        "import_calendar.html", {"request": request, "client": client}
+    )
+
+
+@app.post("/client/{client_id}/import")
+async def import_calendar(
+    client_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    contents = await file.read()
+    wb = openpyxl.load_workbook(_io.BytesIO(contents), data_only=True)
+    ws = wb.active
+
+    # Detect header row — look for a row containing "Date" in one of the first 10 rows
+    header_row = None
+    col_map = {}
+    for row_idx in range(1, 11):
+        for col_idx in range(1, 20):
+            val = ws.cell(row_idx, col_idx).value
+            if isinstance(val, str) and val.strip().lower() == "date":
+                header_row = row_idx
+                # Map column names → column indices
+                for c in range(1, 20):
+                    h = ws.cell(row_idx, c).value
+                    if h:
+                        col_map[str(h).strip().lower()] = c
+                break
+        if header_row:
+            break
+
+    if not header_row:
+        raise HTTPException(status_code=400, detail="Could not find header row with 'Date' column")
+
+    # Column aliases for flexibility
+    def get_col(aliases: list[str]) -> int | None:
+        for alias in aliases:
+            if alias.lower() in col_map:
+                return col_map[alias.lower()]
+        return None
+
+    col_date     = get_col(["date"])
+    col_type     = get_col(["post type", "type"])
+    col_platform = get_col(["platforms", "platform"])
+    col_topic    = get_col(["topic"])
+    col_cover    = get_col(["cover text", "cover"])
+    col_image    = get_col(["image text", "image"])
+    col_caption  = get_col(["caption / hashtags", "caption", "caption/hashtags"])
+    col_ref      = get_col(["reference note", "reference"])
+
+    if not col_date:
+        raise HTTPException(status_code=400, detail="Date column not found in sheet")
+
+    imported = 0
+    errors = []
+
+    for row_idx in range(header_row + 1, ws.max_row + 1):
+        raw_date = ws.cell(row_idx, col_date).value if col_date else None
+        if not raw_date:
+            continue
+
+        # Parse date — handles datetime objects or string formats
+        post_date = None
+        if hasattr(raw_date, "date"):
+            post_date = raw_date.date()
+        elif isinstance(raw_date, str):
+            for fmt in ["%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d %b %Y"]:
+                try:
+                    post_date = datetime.strptime(raw_date.strip(), fmt).date()
+                    break
+                except ValueError:
+                    continue
+        if not post_date:
+            errors.append(f"Row {row_idx}: could not parse date '{raw_date}'")
+            continue
+
+        def cell_val(col):
+            if col is None:
+                return ""
+            v = ws.cell(row_idx, col).value
+            return str(v).strip() if v else ""
+
+        raw_type = cell_val(col_type) or "Static"
+        # Normalize post type
+        type_map = {
+            "static": "Static", "post": "Static", "reel": "Reel",
+            "carousel": "Carousel", "story": "Story", "ugc": "UGC"
+        }
+        post_type = type_map.get(raw_type.lower(), raw_type)
+
+        raw_platforms = cell_val(col_platform).lower()
+        platforms = []
+        if "instagram" in raw_platforms:
+            platforms.append("instagram")
+        if "facebook" in raw_platforms:
+            platforms.append("facebook")
+        if "linkedin" in raw_platforms:
+            platforms.append("linkedin")
+        if not platforms:
+            platforms = ["instagram"]
+
+        db.add(ContentItem(
+            client_id=client.id,
+            post_date=post_date,
+            post_type=post_type,
+            platforms=json.dumps(platforms),
+            topic=cell_val(col_topic),
+            cover_text=cell_val(col_cover),
+            image_text=cell_val(col_image),
+            caption=cell_val(col_caption),
+            hashtags=json.dumps([]),
+            reference_note=cell_val(col_ref),
+            status="generated",
+            is_on_demand=False,
+        ))
+        imported += 1
+
+    db.commit()
+    return RedirectResponse(
+        url=f"/client/{client_id}?imported={imported}",
+        status_code=303,
+    )
