@@ -27,6 +27,7 @@
     <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Instagram / Facebook</p>
     <p style="margin-bottom:16px;">{{ client.instagram_handle or '—' }} / {{ client.facebook_page or '—' }}</p>
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="/client/{{ client.id }}/creatives" class="btn btn-small">Creatives & Publish →</a>
       <a href="/client/{{ client.id }}/analytics" class="btn-secondary btn-small">Analytics →</a>
       <a href="/client/{{ client.id }}/export" class="btn-secondary btn-small">Export Excel ↓</a>
       <a href="/client/{{ client.id }}/import" class="btn-secondary btn-small">Import Excel ↑</a>
@@ -130,6 +131,7 @@
           {% set sp = item.platforms|fromjson %}
           <label><input type="checkbox" name="platforms" value="instagram" {% if 'instagram' in sp %}checked{% endif %}> Instagram</label>
           <label><input type="checkbox" name="platforms" value="facebook" {% if 'facebook' in sp %}checked{% endif %}> Facebook</label>
+          <label><input type="checkbox" name="platforms" value="linkedin" {% if 'linkedin' in sp %}checked{% endif %}> LinkedIn</label>
         </div>
       </div>
     </div>
@@ -231,6 +233,7 @@ function toggleAddOnDemand(){
       <div class="platform-checks" style="margin-bottom:20px;">
         <label><input type="checkbox" name="platforms" value="instagram" checked> Instagram</label>
         <label><input type="checkbox" name="platforms" value="facebook"> Facebook</label>
+        <label><input type="checkbox" name="platforms" value="linkedin"> LinkedIn</label>
       </div>
       <label>Topic / occasion</label>
       <input type="text" name="topic" placeholder="e.g. Diwali special offer">
