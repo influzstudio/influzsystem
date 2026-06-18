@@ -627,7 +627,7 @@ SECRET_KEY = os.getenv("APP_SECRET_KEY", "influz-studio-dev-secret-2026")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 
-@app.get("/auth/linkedin/{client_id}")
+@app.get("/auth/linkedin/start/{client_id}")
 def linkedin_auth_start(client_id: int, request: Request):
     """Redirect user to LinkedIn OAuth."""
     state = f"{client_id}:{secrets.token_hex(8)}"
