@@ -50,6 +50,22 @@ class ContentItem(Base):
     client_feedback = Column(Text, default="")  # Space for client notes
     status = Column(String, default="generated")  # generated, approved, scheduled, posted
     is_on_demand = Column(Boolean, default=False)
+    creative_paths = Column(Text, default="[]")   # JSON list of generated PNG paths
+    posted_at = Column(String, default="")         # ISO date when posted
+    posted_to = Column(Text, default="[]")         # JSON list of platforms posted to
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     client = relationship("Client", back_populates="content_items")
+
+
+class LinkedInToken(Base):
+    """Stores LinkedIn OAuth tokens per client."""
+    __tablename__ = "linkedin_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), unique=True, nullable=False)
+    access_token = Column(Text, nullable=False)
+    person_urn = Column(String, nullable=False)  # LinkedIn sub / person ID
+    name = Column(String, default="")
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

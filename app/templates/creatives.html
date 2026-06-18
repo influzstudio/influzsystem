@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Creatives — {{ client.business_name }}{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Creative pipeline</div>
+<h1 class="page-title">{{ client.business_name }}</h1>
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:32px;align-items:center;">
+  <a href="/client/{{ client.id }}" class="btn-secondary btn-small">← Calendar</a>
+
+  {% if li_token %}
+  <div style="display:flex;align-items:center;gap:8px;background:rgba(45,212,191,0.1);border:1px solid var(--teal);border-radius:4px;padding:8px 16px;font-size:13px;">
+    <span style="color:var(--teal);">✓ LinkedIn connected</span>
+    <span style="color:var(--muted);">— {{ li_token.name }}</span>
+  </div>
+  {% else %}
+  <a href="/auth/linkedin/{{ client.id }}" class="btn" style="background:#0A66C2;">
+    Connect LinkedIn →
+  </a>
+  {% endif %}
+</div>
+
+<!-- Pipeline status legend -->
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:32px;font-size:13px;">
+  {% for status, color, label in [
+    ('approved','#7E8FA0','Approved — awaiting creative'),
+    ('creative_ready','#FBBF24','Creative ready — needs review'),
+    ('creative_approved','#2DD4BF','Creative approved — scheduled to post'),
+    ('posted','#34D399','Posted'),
+  ] %}
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="width:10px;height:10px;border-radius:50%;background:{{ color }};display:inline-block;"></span>
+    <span style="color:var(--muted);">{{ label }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+{% set ns = namespace(approved=0, ready=0, creative_approved=0, posted=0) %}
+{% for e in enriched %}
+  {% if e.item.status == 'approved' %}{% set ns.approved = ns.approved + 1 %}{% endif %}
+  {% if e.item.status == 'creative_ready' %}{% set ns.ready = ns.ready + 1 %}{% endif %}
+  {% if e.item.status == 'creative_approved' %}{% set ns.creative_approved = ns.creative_approved + 1 %}{% endif %}
+  {% if e.item.status == 'posted' %}{% set ns.posted = ns.posted + 1 %}{% endif %}
+{% endfor %}
+
+<div class="stats-grid" style="margin-bottom:32px;">
+  <div class="stat-card"><div class="label">Awaiting creative</div><div class="value" style="color:#7E8FA0;">{{ ns.approved }}</div></div>
+  <div class="stat-card"><div class="label">Needs review</div><div class="value" style="color:#FBBF24;">{{ ns.ready }}</div></div>
+  <div class="stat-card"><div class="label">Approved to post</div><div class="value" style="color:var(--teal);">{{ ns.creative_approved }}</div></div>
+  <div class="stat-card"><div class="label">Posted</div><div class="value" style="color:#34D399;">{{ ns.posted }}</div></div>
+</div>
+
+{% for e in enriched %}
+{% set item = e.item %}
+{% if item.status in ['approved','creative_ready','creative_approved','posted'] %}
+<div class="card" style="margin-bottom:16px;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+    <div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+        <span class="badge">{{ item.post_date.strftime('%d %b %Y, %A') }}</span>
+        <span class="badge badge-muted">{{ item.post_type }}</span>
+        <span style="font-size:12px;color:var(--muted);">{{ e.platforms|join(', ') }}</span>
+      </div>
+      <p style="font-weight:600;font-size:15px;margin-bottom:4px;">{{ item.topic }}</p>
+      <p style="font-size:13px;color:var(--muted);">{{ item.cover_text }}</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+      {% if item.status == 'approved' %}
+        <span style="font-size:12px;color:#7E8FA0;border:1px solid #7E8FA0;padding:4px 10px;border-radius:4px;">⏳ Awaiting creative</span>
+        <form action="/content/{{ item.id }}/generate-creative" method="POST">
+          <button type="submit" class="btn btn-small">Generate creative →</button>
+        </form>
+      {% elif item.status == 'creative_ready' %}
+        <span style="font-size:12px;color:#FBBF24;border:1px solid #FBBF24;padding:4px 10px;border-radius:4px;">👁 Review needed</span>
+      {% elif item.status == 'creative_approved' %}
+        <span style="font-size:12px;color:var(--teal);border:1px solid var(--teal);padding:4px 10px;border-radius:4px;">✓ Approved to post</span>
+        {% if li_token and 'linkedin' in e.platforms %}
+        <form action="/content/{{ item.id }}/publish-now" method="POST">
+          <button type="submit" class="btn btn-small">Post to LinkedIn now →</button>
+        </form>
+        {% endif %}
+      {% elif item.status == 'posted' %}
+        <span style="font-size:12px;color:#34D399;border:1px solid #34D399;padding:4px 10px;border-radius:4px;">✓ Posted {{ item.posted_at }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if e.creative_paths %}
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+    {% for path in e.creative_paths %}
+    <img src="/static/{{ path }}" alt="Creative slide"
+         style="width:200px;height:200px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">
+    {% endfor %}
+  </div>
+
+  {% if item.status == 'creative_ready' %}
+  <div style="display:flex;gap:12px;">
+    <form action="/content/{{ item.id }}/approve-creative" method="POST">
+      <button type="submit" class="btn btn-small">✓ Approve creative</button>
+    </form>
+    <form action="/content/{{ item.id }}/reject-creative" method="POST">
+      <button type="submit" class="btn-secondary btn-small" style="color:#F87171;border-color:rgba(248,113,113,0.4);">✗ Reject & regenerate</button>
+    </form>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <details style="margin-top:12px;">
+    <summary style="font-size:13px;color:var(--muted);cursor:pointer;">View caption</summary>
+    <p style="font-size:13px;color:var(--muted);margin-top:8px;white-space:pre-wrap;">{{ item.caption }}</p>
+  </details>
+</div>
+{% endif %}
+{% endfor %}
+
+{% if ns.approved == 0 and ns.ready == 0 and ns.creative_approved == 0 and ns.posted == 0 %}
+<div class="card empty-state">
+  <h3>No posts in the pipeline yet</h3>
+  <p>Go to the <a href="/client/{{ client.id }}" style="color:var(--teal);">content calendar</a> and approve posts to start generating creatives.</p>
+</div>
+{% endif %}
+
+{% endblock %}

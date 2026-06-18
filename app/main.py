@@ -1,6 +1,7 @@
 from datetime import date, datetime
 import json
 import io
+import os
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -598,4 +599,229 @@ async def import_calendar(
     return RedirectResponse(
         url=f"/client/{client_id}?imported={imported}",
         status_code=303,
+    )
+
+
+# ── App startup / shutdown ────────────────────────────────────────────────────
+from contextlib import asynccontextmanager
+from app.services.scheduler import start_scheduler
+from app.models.client import LinkedInToken
+import secrets
+
+@asynccontextmanager
+async def lifespan(app):
+    Base.metadata.create_all(bind=engine)
+    start_scheduler()
+    yield
+
+app.router.lifespan_context = lifespan
+
+
+# ── LinkedIn OAuth ─────────────────────────────────────────────────────────────
+from app.services.linkedin import (
+    get_auth_url, exchange_code_for_token, get_linkedin_profile
+)
+from starlette.middleware.sessions import SessionMiddleware
+
+SECRET_KEY = os.getenv("APP_SECRET_KEY", "influz-studio-dev-secret-2026")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+
+@app.get("/auth/linkedin/{client_id}")
+def linkedin_auth_start(client_id: int, request: Request):
+    """Redirect user to LinkedIn OAuth."""
+    state = f"{client_id}:{secrets.token_hex(8)}"
+    request.session["oauth_state"] = state
+    return RedirectResponse(url=get_auth_url(state))
+
+
+@app.get("/auth/linkedin/callback")
+def linkedin_auth_callback(
+    request: Request,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    db: Session = Depends(get_db),
+):
+    if error or not code:
+        return HTMLResponse(f"<p style='color:red'>LinkedIn auth failed: {error}</p>")
+
+    stored_state = request.session.get("oauth_state", "")
+    if not state or not stored_state.startswith(state.split(":")[0]):
+        return HTMLResponse("<p style='color:red'>Invalid OAuth state.</p>")
+
+    client_id = int(stored_state.split(":")[0])
+
+    token_data = exchange_code_for_token(code)
+    access_token = token_data.get("access_token", "")
+
+    profile = get_linkedin_profile(access_token)
+    person_urn = profile.get("sub", "")
+    name = profile.get("name", "")
+
+    existing = db.query(LinkedInToken).filter(LinkedInToken.client_id == client_id).first()
+    if existing:
+        existing.access_token = access_token
+        existing.person_urn = person_urn
+        existing.name = name
+    else:
+        db.add(LinkedInToken(
+            client_id=client_id,
+            access_token=access_token,
+            person_urn=person_urn,
+            name=name,
+        ))
+    db.commit()
+    return RedirectResponse(url=f"/client/{client_id}?linkedin=connected")
+
+
+# ── Creative generation ────────────────────────────────────────────────────────
+from app.services.creative import generate_static_creative, generate_carousel_creatives
+
+
+@app.post("/content/{item_id}/generate-creative")
+def generate_creative(item_id: int, db: Session = Depends(get_db)):
+    """Manually trigger creative generation for a single post."""
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        if item.post_type == "Carousel":
+            paths = generate_carousel_creatives(
+                item.id,
+                item.cover_text or item.topic,
+                item.image_text or item.topic,
+                item.post_type,
+            )
+        else:
+            path = generate_static_creative(
+                item.id,
+                item.cover_text or item.topic,
+                item.image_text or "",
+                item.post_type,
+                item.topic,
+            )
+            paths = [path]
+
+        item.creative_paths = json.dumps(paths)
+        item.status = "creative_ready"
+        db.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Creative generation failed: {e}")
+
+    return RedirectResponse(
+        url=f"/client/{item.client_id}/creatives", status_code=303
+    )
+
+
+@app.post("/content/{item_id}/approve-creative")
+def approve_creative(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    item.status = "creative_approved"
+    db.commit()
+    return RedirectResponse(
+        url=f"/client/{item.client_id}/creatives", status_code=303
+    )
+
+
+@app.post("/content/{item_id}/reject-creative")
+def reject_creative(item_id: int, db: Session = Depends(get_db)):
+    """Reject creative — sends post back to approved status for regeneration."""
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    item.status = "approved"
+    item.creative_paths = "[]"
+    db.commit()
+    return RedirectResponse(
+        url=f"/client/{item.client_id}/creatives", status_code=303
+    )
+
+
+@app.post("/content/{item_id}/publish-now")
+def publish_now(item_id: int, db: Session = Depends(get_db)):
+    """Manually trigger immediate publishing for a creative_approved post."""
+    from app.services.linkedin import post_to_linkedin
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    client = db.query(Client).filter(Client.id == item.client_id).first()
+    li_token = db.query(LinkedInToken).filter(LinkedInToken.client_id == item.client_id).first()
+
+    if not li_token:
+        raise HTTPException(status_code=400, detail="LinkedIn not connected for this client")
+
+    platforms = json.loads(item.platforms or "[]")
+    creative_paths = json.loads(item.creative_paths or "[]")
+    full_paths = [
+        str(Path("app/static") / p) for p in creative_paths
+        if Path(f"app/static/{p}").exists()
+    ]
+
+    posted_to = []
+    if "linkedin" in platforms:
+        try:
+            post_to_linkedin(
+                access_token=li_token.access_token,
+                person_urn=li_token.person_urn,
+                caption=item.caption,
+                image_paths=full_paths or None,
+            )
+            posted_to.append("linkedin")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LinkedIn posting failed: {e}")
+
+    if posted_to:
+        item.status = "posted"
+        item.posted_at = date.today().isoformat()
+        item.posted_to = json.dumps(posted_to)
+        db.commit()
+
+    return RedirectResponse(
+        url=f"/client/{item.client_id}/creatives", status_code=303
+    )
+
+
+# ── Creatives review page ──────────────────────────────────────────────────────
+from pathlib import Path as _Path
+
+
+@app.get("/client/{client_id}/creatives", response_class=HTMLResponse)
+def creatives_page(request: Request, client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    li_token = db.query(LinkedInToken).filter(LinkedInToken.client_id == client_id).first()
+
+    items = (
+        db.query(ContentItem)
+        .filter(ContentItem.client_id == client_id)
+        .order_by(ContentItem.post_date)
+        .all()
+    )
+
+    # Enrich items with parsed creative paths
+    enriched = []
+    for item in items:
+        paths = json.loads(item.creative_paths or "[]")
+        platforms = json.loads(item.platforms or "[]")
+        enriched.append({
+            "item": item,
+            "creative_paths": paths,
+            "platforms": platforms,
+        })
+
+    return templates.TemplateResponse(
+        "creatives.html",
+        {
+            "request": request,
+            "client": client,
+            "enriched": enriched,
+            "li_token": li_token,
+        },
     )
