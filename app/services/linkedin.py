@@ -1,6 +1,5 @@
 """
 LinkedIn OAuth and publishing service.
-Handles OAuth 2.0 flow and posting text + images to LinkedIn.
 """
 import os
 import httpx
@@ -11,11 +10,11 @@ CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "")
 REDIRECT_URI  = os.getenv("LINKEDIN_REDIRECT_URI",
                            "https://influzsystem.onrender.com/auth/linkedin/callback")
 
-SCOPES = "openid profile email w_member_social"
+SCOPES = "r_liteprofile r_emailaddress w_member_social"
 
 AUTH_URL    = "https://www.linkedin.com/oauth/v2/authorization"
 TOKEN_URL   = "https://www.linkedin.com/oauth/v2/accessToken"
-PROFILE_URL = "https://api.linkedin.com/v2/userinfo"
+PROFILE_URL = "https://api.linkedin.com/v2/me"
 POSTS_URL   = "https://api.linkedin.com/rest/posts"
 IMAGES_URL  = "https://api.linkedin.com/rest/images?action=initializeUpload"
 
@@ -32,7 +31,6 @@ def get_auth_url(state: str) -> str:
 
 
 def exchange_code_for_token(code: str) -> dict:
-    """Exchange OAuth code for access token. Returns token dict."""
     with httpx.Client() as client:
         resp = client.post(TOKEN_URL, data={
             "grant_type": "authorization_code",
@@ -46,14 +44,24 @@ def exchange_code_for_token(code: str) -> dict:
 
 
 def get_linkedin_profile(access_token: str) -> dict:
-    """Get the LinkedIn user's profile (sub = person URN)."""
+    """Get profile using r_liteprofile scope."""
     with httpx.Client() as client:
         resp = client.get(
             PROFILE_URL,
-            headers={"Authorization": f"Bearer {access_token}"}
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "X-Restli-Protocol-Version": "2.0.0",
+            }
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        person_id = data.get("id", "")
+        first = data.get("localizedFirstName", "")
+        last = data.get("localizedLastName", "")
+        return {
+            "sub": person_id,
+            "name": f"{first} {last}".strip(),
+        }
 
 
 def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
@@ -63,7 +71,6 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
         "Content-Type": "application/json",
         "LinkedIn-Version": "202501",
     }
-    # Step 1: Initialize upload
     with httpx.Client() as client:
         init_resp = client.post(IMAGES_URL, headers=headers, json={
             "initializeUploadRequest": {
@@ -75,7 +82,6 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
         upload_url = upload_data["uploadUrl"]
         image_urn = upload_data["image"]
 
-        # Step 2: Upload binary
         with open(image_path, "rb") as f:
             img_bytes = f.read()
         put_resp = client.put(
@@ -85,7 +91,6 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
                      "Content-Type": "application/octet-stream"},
         )
         put_resp.raise_for_status()
-
     return image_urn
 
 
@@ -95,22 +100,15 @@ def post_to_linkedin(
     caption: str,
     image_paths: list[str] | None = None,
 ) -> dict:
-    """
-    Post text (+ optional images) to LinkedIn personal profile.
-    image_paths: list of local file paths to upload (max 9 for carousel, 1 for static).
-    Returns the API response dict.
-    """
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "LinkedIn-Version": "202501",
         "X-Restli-Protocol-Version": "2.0.0",
     }
-
     author = f"urn:li:person:{person_urn}"
 
     if not image_paths:
-        # Text-only post
         payload = {
             "author": author,
             "commentary": caption,
@@ -124,7 +122,6 @@ def post_to_linkedin(
             "isReshareDisabledByAuthor": False,
         }
     elif len(image_paths) == 1:
-        # Single image post
         image_urn = _upload_image(access_token, person_urn, image_paths[0])
         payload = {
             "author": author,
@@ -145,7 +142,6 @@ def post_to_linkedin(
             "isReshareDisabledByAuthor": False,
         }
     else:
-        # Multi-image (carousel-style) post
         image_urns = [_upload_image(access_token, person_urn, p) for p in image_paths]
         payload = {
             "author": author,
