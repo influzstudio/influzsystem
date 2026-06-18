@@ -10,7 +10,7 @@ CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "")
 REDIRECT_URI  = os.getenv("LINKEDIN_REDIRECT_URI",
                            "https://influzsystem.onrender.com/auth/linkedin/callback")
 
-SCOPES = "r_liteprofile r_emailaddress w_member_social"
+SCOPES = "w_member_social"
 
 AUTH_URL    = "https://www.linkedin.com/oauth/v2/authorization"
 TOKEN_URL   = "https://www.linkedin.com/oauth/v2/accessToken"
