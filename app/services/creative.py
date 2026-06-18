@@ -1,7 +1,6 @@
 """
 Creative generation service.
 Generates branded 1080x1080 SVG templates and converts to PNG using cairosvg.
-No browser or Playwright needed — installs cleanly on Render free tier.
 """
 import os
 import json
