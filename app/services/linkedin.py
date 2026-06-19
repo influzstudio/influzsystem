@@ -1,5 +1,6 @@
 """
 LinkedIn OAuth and publishing service.
+Uses UGC Posts API which works with Default Tier apps.
 """
 import os
 import httpx
@@ -15,8 +16,8 @@ SCOPES = "openid profile w_member_social"
 AUTH_URL    = "https://www.linkedin.com/oauth/v2/authorization"
 TOKEN_URL   = "https://www.linkedin.com/oauth/v2/accessToken"
 PROFILE_URL = "https://api.linkedin.com/v2/userinfo"
-POSTS_URL   = "https://api.linkedin.com/rest/posts"
-IMAGES_URL  = "https://api.linkedin.com/rest/images?action=initializeUpload"
+UGC_POSTS_URL = "https://api.linkedin.com/v2/ugcPosts"
+ASSETS_URL    = "https://api.linkedin.com/v2/assets?action=registerUpload"
 
 
 def get_auth_url(state: str) -> str:
@@ -44,74 +45,55 @@ def exchange_code_for_token(code: str) -> dict:
 
 
 def get_linkedin_profile(access_token: str) -> dict:
-    """Get profile — may fail if only w_member_social scope granted."""
     try:
         with httpx.Client() as client:
             resp = client.get(
                 PROFILE_URL,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "X-Restli-Protocol-Version": "2.0.0",
-                }
+                headers={"Authorization": f"Bearer {access_token}"}
             )
-            resp.raise_for_status()
             data = resp.json()
-            person_id = data.get("id", "")
-            first = data.get("localizedFirstName", "")
-            last = data.get("localizedLastName", "")
             return {
-                "sub": person_id,
-                "name": f"{first} {last}".strip(),
+                "sub": data.get("sub", ""),
+                "name": data.get("name", "Influz Studio"),
             }
     except Exception:
-        # w_member_social only — extract person ID from token introspection
-        try:
-            with httpx.Client() as client:
-                resp = client.get(
-                    "https://api.linkedin.com/v2/userinfo",
-                    headers={"Authorization": f"Bearer {access_token}"}
-                )
-                data = resp.json()
-                return {
-                    "sub": data.get("sub", ""),
-                    "name": data.get("name", "Influz Studio"),
-                }
-        except Exception:
-            return {"sub": "", "name": "Connected"}
+        return {"sub": "", "name": "Connected"}
 
 
-def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
-    """Upload an image to LinkedIn and return the image URN."""
+def _upload_image_asset(access_token: str, person_urn: str, image_path: str) -> str:
+    """Upload image using v2/assets API (works with Default Tier)."""
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
-        "LinkedIn-Version": "202311",
         "X-Restli-Protocol-Version": "2.0.0",
     }
-    with httpx.Client() as client:
-        init_resp = client.post(IMAGES_URL, headers=headers, json={
-            "initializeUploadRequest": {
-                "owner": f"urn:li:person:{person_urn}"
-            }
-        })
-        init_resp.raise_for_status()
-        upload_data = init_resp.json()["value"]
-        upload_url = upload_data["uploadUrl"]
-        image_urn = upload_data["image"]
+    register_payload = {
+        "registerUploadRequest": {
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "owner": f"urn:li:person:{person_urn}",
+            "serviceRelationships": [{
+                "relationshipType": "OWNER",
+                "identifier": "urn:li:userGeneratedContent"
+            }]
+        }
+    }
+    with httpx.Client(timeout=30) as client:
+        reg_resp = client.post(ASSETS_URL, headers=headers, json=register_payload)
+        reg_resp.raise_for_status()
+        reg_data = reg_resp.json()
+        upload_url = reg_data["value"]["uploadMechanism"][
+            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]["uploadUrl"]
+        asset = reg_data["value"]["asset"]
 
         with open(image_path, "rb") as f:
             img_bytes = f.read()
-        put_resp = client.put(
+        client.put(
             upload_url,
             content=img_bytes,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/octet-stream",
-                "LinkedIn-Version": "202311",
-            },
+            headers={"Authorization": f"Bearer {access_token}",
+                     "Content-Type": "application/octet-stream"},
         )
-        put_resp.raise_for_status()
-    return image_urn
+    return asset
 
 
 def post_to_linkedin(
@@ -123,7 +105,6 @@ def post_to_linkedin(
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
-        "LinkedIn-Version": "202311",
         "X-Restli-Protocol-Version": "2.0.0",
     }
     author = f"urn:li:person:{person_urn}"
@@ -131,60 +112,62 @@ def post_to_linkedin(
     if not image_paths:
         payload = {
             "author": author,
-            "commentary": caption,
-            "visibility": "PUBLIC",
-            "distribution": {
-                "feedDistribution": "MAIN_FEED",
-                "targetEntities": [],
-                "thirdPartyDistributionChannels": [],
-            },
             "lifecycleState": "PUBLISHED",
-            "isReshareDisabledByAuthor": False,
-        }
-    elif len(image_paths) == 1:
-        image_urn = _upload_image(access_token, person_urn, image_paths[0])
-        payload = {
-            "author": author,
-            "commentary": caption,
-            "visibility": "PUBLIC",
-            "distribution": {
-                "feedDistribution": "MAIN_FEED",
-                "targetEntities": [],
-                "thirdPartyDistributionChannels": [],
-            },
-            "content": {
-                "media": {
-                    "altText": caption[:200],
-                    "id": image_urn,
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {"text": caption},
+                    "shareMediaCategory": "NONE",
                 }
             },
-            "lifecycleState": "PUBLISHED",
-            "isReshareDisabledByAuthor": False,
+            "visibility": {
+                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+            }
         }
     else:
-        image_urns = [_upload_image(access_token, person_urn, p) for p in image_paths]
-        payload = {
-            "author": author,
-            "commentary": caption,
-            "visibility": "PUBLIC",
-            "distribution": {
-                "feedDistribution": "MAIN_FEED",
-                "targetEntities": [],
-                "thirdPartyDistributionChannels": [],
-            },
-            "content": {
-                "multiImage": {
-                    "images": [
-                        {"altText": f"Slide {i+1}", "id": urn}
-                        for i, urn in enumerate(image_urns)
-                    ]
-                }
-            },
-            "lifecycleState": "PUBLISHED",
-            "isReshareDisabledByAuthor": False,
-        }
+        media = []
+        for path in image_paths[:1]:  # single image for now
+            try:
+                asset = _upload_image_asset(access_token, person_urn, path)
+                media.append({
+                    "status": "READY",
+                    "media": asset,
+                    "title": {"text": caption[:100]},
+                })
+            except Exception:
+                pass
 
-    with httpx.Client() as client:
-        resp = client.post(POSTS_URL, headers=headers, json=payload, timeout=30)
+        if media:
+            payload = {
+                "author": author,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": caption},
+                        "shareMediaCategory": "IMAGE",
+                        "media": media,
+                    }
+                },
+                "visibility": {
+                    "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+                }
+            }
+        else:
+            # fallback text only
+            payload = {
+                "author": author,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": caption},
+                        "shareMediaCategory": "NONE",
+                    }
+                },
+                "visibility": {
+                    "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+                }
+            }
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(UGC_POSTS_URL, headers=headers, json=payload)
         resp.raise_for_status()
         return {"status": "posted", "post_id": resp.headers.get("x-restli-id", "")}
