@@ -757,10 +757,23 @@ def publish_now(item_id: int, db: Session = Depends(get_db)):
 
     platforms = json.loads(item.platforms or "[]")
     creative_paths = json.loads(item.creative_paths or "[]")
-    full_paths = [
-        str(Path("app/static") / p) for p in creative_paths
-        if Path(f"app/static/{p}").exists()
-    ]
+
+    # Regenerate creative if file doesn't exist (Render ephemeral filesystem)
+    full_paths = []
+    for p in creative_paths:
+        full = f"app/static/{p}"
+        if not os.path.exists(full):
+            try:
+                if item.post_type == "Carousel":
+                    generate_carousel_creatives(item.id, item.cover_text or item.topic,
+                                                item.image_text or item.topic, item.post_type)
+                else:
+                    generate_static_creative(item.id, item.cover_text or item.topic,
+                                             item.image_text or "", item.post_type, item.topic)
+            except Exception:
+                pass
+        if os.path.exists(full):
+            full_paths.append(full)
 
     posted_to = []
     if "linkedin" in platforms:

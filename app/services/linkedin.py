@@ -10,11 +10,11 @@ CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "")
 REDIRECT_URI  = os.getenv("LINKEDIN_REDIRECT_URI",
                            "https://influzsystem.onrender.com/auth/linkedin/callback")
 
-SCOPES = "openid profile w_member_social"
+SCOPES = "w_member_social"
 
 AUTH_URL    = "https://www.linkedin.com/oauth/v2/authorization"
 TOKEN_URL   = "https://www.linkedin.com/oauth/v2/accessToken"
-PROFILE_URL = "https://api.linkedin.com/v2/userinfo"
+PROFILE_URL = "https://api.linkedin.com/v2/me"
 POSTS_URL   = "https://api.linkedin.com/rest/posts"
 IMAGES_URL  = "https://api.linkedin.com/rest/images?action=initializeUpload"
 
@@ -44,24 +44,40 @@ def exchange_code_for_token(code: str) -> dict:
 
 
 def get_linkedin_profile(access_token: str) -> dict:
-    """Get profile using r_liteprofile scope."""
-    with httpx.Client() as client:
-        resp = client.get(
-            PROFILE_URL,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "X-Restli-Protocol-Version": "2.0.0",
+    """Get profile — may fail if only w_member_social scope granted."""
+    try:
+        with httpx.Client() as client:
+            resp = client.get(
+                PROFILE_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            person_id = data.get("id", "")
+            first = data.get("localizedFirstName", "")
+            last = data.get("localizedLastName", "")
+            return {
+                "sub": person_id,
+                "name": f"{first} {last}".strip(),
             }
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        person_id = data.get("id", "")
-        first = data.get("localizedFirstName", "")
-        last = data.get("localizedLastName", "")
-        return {
-            "sub": person_id,
-            "name": f"{first} {last}".strip(),
-        }
+    except Exception:
+        # w_member_social only — extract person ID from token introspection
+        try:
+            with httpx.Client() as client:
+                resp = client.get(
+                    "https://api.linkedin.com/v2/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                data = resp.json()
+                return {
+                    "sub": data.get("sub", ""),
+                    "name": data.get("name", "Influz Studio"),
+                }
+        except Exception:
+            return {"sub": "", "name": "Connected"}
 
 
 def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
