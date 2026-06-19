@@ -778,12 +778,22 @@ def publish_now(item_id: int, db: Session = Depends(get_db)):
     posted_to = []
     if "linkedin" in platforms:
         try:
-            post_to_linkedin(
-                access_token=li_token.access_token,
-                person_urn=li_token.person_urn,
-                caption=item.caption,
-                image_paths=full_paths or None,
-            )
+            # Try with image first, fall back to text-only if image upload fails
+            try:
+                post_to_linkedin(
+                    access_token=li_token.access_token,
+                    person_urn=li_token.person_urn,
+                    caption=item.caption,
+                    image_paths=full_paths or None,
+                )
+            except Exception:
+                # Fallback: post text only
+                post_to_linkedin(
+                    access_token=li_token.access_token,
+                    person_urn=li_token.person_urn,
+                    caption=item.caption,
+                    image_paths=None,
+                )
             posted_to.append("linkedin")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LinkedIn posting failed: {e}")

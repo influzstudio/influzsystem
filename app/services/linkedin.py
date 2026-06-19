@@ -86,6 +86,7 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "LinkedIn-Version": "202501",
+        "X-Restli-Protocol-Version": "2.0.0",
     }
     with httpx.Client() as client:
         init_resp = client.post(IMAGES_URL, headers=headers, json={
@@ -103,8 +104,11 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
         put_resp = client.put(
             upload_url,
             content=img_bytes,
-            headers={"Authorization": f"Bearer {access_token}",
-                     "Content-Type": "application/octet-stream"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/octet-stream",
+                "LinkedIn-Version": "202501",
+            },
         )
         put_resp.raise_for_status()
     return image_urn
