@@ -185,6 +185,6 @@ def post_to_linkedin(
         }
 
     with httpx.Client() as client:
-        resp = client.post(POSTS_URL, headers=headers, json=payload)
+        resp = client.post(POSTS_URL, headers=headers, json=payload, timeout=30)
         resp.raise_for_status()
         return {"status": "posted", "post_id": resp.headers.get("x-restli-id", "")}
