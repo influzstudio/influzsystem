@@ -85,7 +85,7 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
-        "LinkedIn-Version": "202501",
+        "LinkedIn-Version": "202311",
         "X-Restli-Protocol-Version": "2.0.0",
     }
     with httpx.Client() as client:
@@ -107,7 +107,7 @@ def _upload_image(access_token: str, person_urn: str, image_path: str) -> str:
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/octet-stream",
-                "LinkedIn-Version": "202501",
+                "LinkedIn-Version": "202311",
             },
         )
         put_resp.raise_for_status()
@@ -123,7 +123,7 @@ def post_to_linkedin(
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
-        "LinkedIn-Version": "202501",
+        "LinkedIn-Version": "202311",
         "X-Restli-Protocol-Version": "2.0.0",
     }
     author = f"urn:li:person:{person_urn}"
