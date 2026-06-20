@@ -717,14 +717,73 @@ def generate_creative(item_id: int, db: Session = Depends(get_db)):
 
 @app.post("/content/{item_id}/approve-creative")
 def approve_creative(item_id: int, db: Session = Depends(get_db)):
+    """
+    Approve creative → auto-publish if post_date is today or past,
+    otherwise mark as creative_approved (scheduled — will auto-post on the date).
+    """
+    from app.services.linkedin import post_to_linkedin
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
-    item.status = "creative_approved"
+
+    li_token = db.query(LinkedInToken).filter(LinkedInToken.client_id == item.client_id).first()
+    today = date.today()
+
+    # If post_date is today or past → publish immediately
+    if item.post_date <= today and li_token:
+        platforms = json.loads(item.platforms or "[]")
+        creative_paths = json.loads(item.creative_paths or "[]")
+
+        # Regenerate if files missing (ephemeral storage)
+        full_paths = []
+        for p in creative_paths:
+            full = f"app/static/{p}"
+            if not os.path.exists(full):
+                try:
+                    if item.post_type == "Carousel":
+                        generate_carousel_creatives(item.id, item.cover_text or item.topic,
+                                                    item.image_text or item.topic, item.post_type)
+                    else:
+                        generate_static_creative(item.id, item.cover_text or item.topic,
+                                                 item.image_text or "", item.post_type, item.topic)
+                except Exception:
+                    pass
+            if os.path.exists(full):
+                full_paths.append(full)
+
+        posted_to = []
+        if "linkedin" in platforms:
+            try:
+                try:
+                    post_to_linkedin(
+                        access_token=li_token.access_token,
+                        person_urn=li_token.person_urn,
+                        caption=item.caption,
+                        image_paths=full_paths or None,
+                    )
+                except Exception:
+                    post_to_linkedin(
+                        access_token=li_token.access_token,
+                        person_urn=li_token.person_urn,
+                        caption=item.caption,
+                        image_paths=None,
+                    )
+                posted_to.append("linkedin")
+            except Exception:
+                pass  # Mark as approved anyway, scheduler will retry
+
+        if posted_to:
+            item.status = "posted"
+            item.posted_at = today.isoformat()
+            item.posted_to = json.dumps(posted_to)
+        else:
+            item.status = "creative_approved"
+    else:
+        # Future date → mark as scheduled, scheduler posts it on the right day
+        item.status = "creative_approved"
+
     db.commit()
-    return RedirectResponse(
-        url=f"/client/{item.client_id}/creatives", status_code=303
-    )
+    return RedirectResponse(url=f"/client/{item.client_id}/creatives", status_code=303)
 
 
 @app.post("/content/{item_id}/reject-creative")

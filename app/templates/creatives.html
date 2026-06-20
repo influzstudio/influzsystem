@@ -73,12 +73,7 @@
       {% elif item.status == 'creative_ready' %}
         <span style="font-size:12px;color:#FBBF24;border:1px solid #FBBF24;padding:4px 10px;border-radius:4px;">👁 Review needed</span>
       {% elif item.status == 'creative_approved' %}
-        <span style="font-size:12px;color:var(--teal);border:1px solid var(--teal);padding:4px 10px;border-radius:4px;">✓ Approved to post</span>
-        {% if li_token and 'linkedin' in e.platforms %}
-        <form action="/content/{{ item.id }}/publish-now" method="POST">
-          <button type="submit" class="btn btn-small">Post to LinkedIn now →</button>
-        </form>
-        {% endif %}
+        <span style="font-size:12px;color:var(--teal);border:1px solid var(--teal);padding:4px 10px;border-radius:4px;">📅 Scheduled for {{ item.post_date.strftime('%d %b') }}</span>
       {% elif item.status == 'posted' %}
         <span style="font-size:12px;color:#34D399;border:1px solid #34D399;padding:4px 10px;border-radius:4px;">✓ Posted {{ item.posted_at }}</span>
       {% endif %}
@@ -124,9 +119,6 @@
 </div>
 {% endif %}
 
-{% endblock %}
-
-{% block extra %}
 <div id="lightbox" onclick="closeLightbox()"
      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);
             z-index:9999;justify-content:center;align-items:center;cursor:zoom-out;">
@@ -136,13 +128,9 @@
        style="position:fixed;top:24px;right:32px;color:#fff;font-size:32px;cursor:pointer;">✕</div>
 </div>
 <script>
-function openLightbox(src){
-  document.getElementById('lightbox-img').src=src;
-  document.getElementById('lightbox').style.display='flex';
-}
-function closeLightbox(){
-  document.getElementById('lightbox').style.display='none';
-}
+function openLightbox(src){document.getElementById('lightbox-img').src=src;document.getElementById('lightbox').style.display='flex';}
+function closeLightbox(){document.getElementById('lightbox').style.display='none';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
 </script>
+
 {% endblock %}

@@ -1,9 +1,8 @@
 """
-Background scheduler — runs daily jobs:
-1. Generate creatives for approved posts due in the next 24 hours
-2. Publish creative_approved posts that are due today
+Background scheduler:
+1. 8 AM IST — generate creatives for posts due tomorrow
+2. 9 AM IST — auto-post creative_approved posts due TODAY
 """
-import os
 import json
 import logging
 from datetime import date, timedelta
@@ -13,47 +12,57 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.database import SessionLocal
-from app.models.client import Client, ContentItem
+from app.models.client import ContentItem, LinkedInToken
 
 log = logging.getLogger(__name__)
-
 scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
 
 
+def _get_full_paths(item, db) -> list[str]:
+    """Get creative file paths, regenerating if missing."""
+    from app.services.creative import generate_static_creative, generate_carousel_creatives
+    creative_paths = json.loads(item.creative_paths or "[]")
+    full_paths = []
+    for p in creative_paths:
+        full = f"app/static/{p}"
+        if not Path(full).exists():
+            try:
+                if item.post_type == "Carousel":
+                    generate_carousel_creatives(item.id, item.cover_text or item.topic,
+                                                item.image_text or item.topic, item.post_type)
+                else:
+                    generate_static_creative(item.id, item.cover_text or item.topic,
+                                             item.image_text or "", item.post_type, item.topic)
+            except Exception as e:
+                log.error(f"Creative regen failed for item {item.id}: {e}")
+        if Path(full).exists():
+            full_paths.append(full)
+    return full_paths
+
+
 def generate_due_creatives():
-    """Find approved posts due today or tomorrow → generate their creatives."""
-    from app.services.creative import (
-        generate_static_creative, generate_carousel_creatives
-    )
+    """8 AM — generate creatives for approved posts due tomorrow."""
+    from app.services.creative import generate_static_creative, generate_carousel_creatives
     db = SessionLocal()
     try:
-        today = date.today()
-        tomorrow = today + timedelta(days=1)
-        items = (
-            db.query(ContentItem)
-            .filter(
-                ContentItem.status == "approved",
-                ContentItem.post_date.in_([today, tomorrow]),
-            )
-            .all()
-        )
+        tomorrow = date.today() + timedelta(days=1)
+        items = db.query(ContentItem).filter(
+            ContentItem.status == "approved",
+            ContentItem.post_date == tomorrow,
+        ).all()
         for item in items:
             try:
                 if item.post_type == "Carousel":
                     paths = generate_carousel_creatives(
                         item.id, item.cover_text or item.topic,
-                        item.image_text or item.topic, item.post_type
-                    )
-                    item.creative_paths = json.dumps(paths)
+                        item.image_text or item.topic, item.post_type)
                 else:
-                    path = generate_static_creative(
+                    paths = [generate_static_creative(
                         item.id, item.cover_text or item.topic,
-                        item.image_text or "", item.post_type, item.topic
-                    )
-                    item.creative_paths = json.dumps([path])
-
+                        item.image_text or "", item.post_type, item.topic)]
+                item.creative_paths = json.dumps(paths)
                 item.status = "creative_ready"
-                log.info(f"Creative generated for item {item.id}: {item.topic}")
+                log.info(f"Creative generated for item {item.id}")
             except Exception as e:
                 log.error(f"Creative generation failed for item {item.id}: {e}")
         db.commit()
@@ -62,51 +71,52 @@ def generate_due_creatives():
 
 
 def publish_due_posts():
-    """Find creative_approved posts due today → post to LinkedIn."""
+    """9 AM — publish creative_approved posts due TODAY on their scheduled date."""
     from app.services.linkedin import post_to_linkedin
     db = SessionLocal()
     try:
         today = date.today()
-        items = (
-            db.query(ContentItem)
-            .filter(
-                ContentItem.status == "creative_approved",
-                ContentItem.post_date == today,
-            )
-            .all()
-        )
+        items = db.query(ContentItem).filter(
+            ContentItem.status == "creative_approved",
+            ContentItem.post_date == today,
+        ).all()
+
         for item in items:
-            client = db.query(Client).filter(Client.id == item.client_id).first()
-            if not client:
+            li_token = db.query(LinkedInToken).filter(
+                LinkedInToken.client_id == item.client_id).first()
+            if not li_token:
+                log.warning(f"No LinkedIn token for client {item.client_id}")
                 continue
 
             platforms = json.loads(item.platforms or "[]")
-            creative_paths = json.loads(item.creative_paths or "[]")
-            full_paths = [
-                str(Path("app/static") / p) for p in creative_paths
-                if Path(f"app/static/{p}").exists()
-            ]
-
+            full_paths = _get_full_paths(item, db)
             posted_to = []
 
-            if "linkedin" in platforms and client.linkedin_access_token:
+            if "linkedin" in platforms:
                 try:
-                    result = post_to_linkedin(
-                        access_token=client.linkedin_access_token,
-                        person_urn=client.linkedin_person_urn,
-                        caption=item.caption,
-                        image_paths=full_paths or None,
-                    )
+                    try:
+                        post_to_linkedin(
+                            access_token=li_token.access_token,
+                            person_urn=li_token.person_urn,
+                            caption=item.caption,
+                            image_paths=full_paths or None,
+                        )
+                    except Exception:
+                        post_to_linkedin(
+                            access_token=li_token.access_token,
+                            person_urn=li_token.person_urn,
+                            caption=item.caption,
+                            image_paths=None,
+                        )
                     posted_to.append("linkedin")
-                    log.info(f"Posted item {item.id} to LinkedIn: {result}")
+                    log.info(f"Posted item {item.id} to LinkedIn")
                 except Exception as e:
                     log.error(f"LinkedIn post failed for item {item.id}: {e}")
 
             if posted_to:
                 item.status = "posted"
-                item.posted_at = date.today().isoformat()
+                item.posted_at = today.isoformat()
                 item.posted_to = json.dumps(posted_to)
-                log.info(f"Item {item.id} marked as posted to: {posted_to}")
 
         db.commit()
     finally:
@@ -114,21 +124,14 @@ def publish_due_posts():
 
 
 def start_scheduler():
-    """Start the background scheduler. Called once on app startup."""
-    # Generate creatives at 8 AM IST daily
-    scheduler.add_job(
-        generate_due_creatives,
-        CronTrigger(hour=8, minute=0, timezone="Asia/Kolkata"),
-        id="generate_creatives",
-        replace_existing=True,
-    )
-    # Publish posts at 10 AM IST daily
-    scheduler.add_job(
-        publish_due_posts,
-        CronTrigger(hour=10, minute=0, timezone="Asia/Kolkata"),
-        id="publish_posts",
-        replace_existing=True,
-    )
+    # 8 AM IST — generate creatives for tomorrow's posts
+    scheduler.add_job(generate_due_creatives,
+                      CronTrigger(hour=8, minute=0, timezone="Asia/Kolkata"),
+                      id="generate_creatives", replace_existing=True)
+    # 9 AM IST — publish today's approved posts
+    scheduler.add_job(publish_due_posts,
+                      CronTrigger(hour=9, minute=0, timezone="Asia/Kolkata"),
+                      id="publish_posts", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-        log.info("Influz Studio scheduler started — creatives at 8 AM, publishing at 10 AM IST")
+        log.info("Scheduler started — creatives at 8 AM, publishing at 9 AM IST")
