@@ -89,7 +89,11 @@
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
     {% for path in e.creative_paths %}
     <img src="/static/{{ path }}" alt="Creative slide"
-         style="width:200px;height:200px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">
+         onclick="openLightbox(this.src)"
+         style="width:200px;height:200px;object-fit:cover;border-radius:6px;
+                border:1px solid var(--line);cursor:zoom-in;transition:transform 0.2s;"
+         onmouseover="this.style.transform='scale(1.03)'"
+         onmouseout="this.style.transform='scale(1)'">
     {% endfor %}
   </div>
 
@@ -120,4 +124,25 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block extra %}
+<div id="lightbox" onclick="closeLightbox()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);
+            z-index:9999;justify-content:center;align-items:center;cursor:zoom-out;">
+  <img id="lightbox-img" style="max-width:90vw;max-height:90vh;border-radius:8px;
+       box-shadow:0 0 60px rgba(45,212,191,0.3);">
+  <div onclick="closeLightbox()"
+       style="position:fixed;top:24px;right:32px;color:#fff;font-size:32px;cursor:pointer;">✕</div>
+</div>
+<script>
+function openLightbox(src){
+  document.getElementById('lightbox-img').src=src;
+  document.getElementById('lightbox').style.display='flex';
+}
+function closeLightbox(){
+  document.getElementById('lightbox').style.display='none';
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
+</script>
 {% endblock %}
