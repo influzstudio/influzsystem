@@ -48,6 +48,7 @@ class ContentItem(Base):
     hashtags = Column(Text, default="[]")       # Legacy field kept for compat
     reference_note = Column(Text, default="")   # Visual reference direction
     client_feedback = Column(Text, default="")  # Space for client notes
+    client_photo_path = Column(String, default="")  # Path to client-uploaded photo
     status = Column(String, default="generated")  # generated, approved, scheduled, posted
     is_on_demand = Column(Boolean, default=False)
     creative_paths = Column(Text, default="[]")   # JSON list of generated PNG paths

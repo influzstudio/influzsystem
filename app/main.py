@@ -681,26 +681,31 @@ from app.services.creative import generate_static_creative, generate_carousel_cr
 
 @app.post("/content/{item_id}/generate-creative")
 def generate_creative(item_id: int, db: Session = Depends(get_db)):
-    """Manually trigger creative generation for a single post."""
+    """Generate creative — uses photo (client upload or Unsplash) with text overlay."""
+    from app.services.photo_creative import generate_photo_creative
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
+    client = db.query(Client).filter(Client.id == item.client_id).first()
 
     try:
         if item.post_type == "Carousel":
+            # Carousel: generate multiple photo slides
+            from app.services.creative import generate_carousel_creatives
             paths = generate_carousel_creatives(
-                item.id,
-                item.cover_text or item.topic,
-                item.image_text or item.topic,
-                item.post_type,
-            )
+                item.id, item.cover_text or item.topic,
+                item.image_text or item.topic, item.post_type)
         else:
-            path = generate_static_creative(
-                item.id,
-                item.cover_text or item.topic,
-                item.image_text or "",
-                item.post_type,
-                item.topic,
+            path = generate_photo_creative(
+                item_id=item.id,
+                cover_text=item.cover_text or item.topic,
+                image_text=item.image_text or "",
+                post_type=item.post_type,
+                topic=item.topic,
+                niche=client.niche if client else "",
+                client_photo_path=item.client_photo_path or None,
+                business_name=client.business_name if client else "Influz Studio",
+                website=f"influzstudio.netlify.app",
             )
             paths = [path]
 
@@ -710,12 +715,37 @@ def generate_creative(item_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Creative generation failed: {e}")
 
+    return RedirectResponse(url=f"/client/{item.client_id}/creatives", status_code=303)
+
+
+@app.post("/content/{item_id}/upload-photo")
+async def upload_photo(
+    item_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload a client photo for a specific content item."""
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Save photo
+    photos_dir = Path("app/static/client_photos")
+    photos_dir.mkdir(parents=True, exist_ok=True)
+    photo_path = photos_dir / f"item_{item_id}_client.jpg"
+
+    contents = await file.read()
+    with open(photo_path, "wb") as f:
+        f.write(contents)
+
+    item.client_photo_path = str(photo_path)
+    item.status = "approved"  # Reset to trigger creative regen
+    item.creative_paths = "[]"
+    db.commit()
+
     return RedirectResponse(
         url=f"/client/{item.client_id}/creatives", status_code=303
     )
-
-
-@app.post("/content/{item_id}/approve-creative")
 def approve_creative(item_id: int, db: Session = Depends(get_db)):
     """
     Approve creative → auto-publish if post_date is today or past,
