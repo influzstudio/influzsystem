@@ -711,6 +711,13 @@ def generate_creative(item_id: int, db: Session = Depends(get_db)):
                 item.id, item.cover_text or item.topic,
                 item.image_text or item.topic, item.post_type)
         else:
+            client_photo = None
+            try:
+                client_photo = item.client_photo_path or None
+            except Exception:
+                pass
+            if not client_photo and item.reference_note and item.reference_note.startswith("PHOTO:"):
+                client_photo = item.reference_note.replace("PHOTO:", "").strip()
             path = generate_photo_creative(
                 item_id=item.id,
                 cover_text=item.cover_text or item.topic,
@@ -718,9 +725,9 @@ def generate_creative(item_id: int, db: Session = Depends(get_db)):
                 post_type=item.post_type,
                 topic=item.topic,
                 niche=client.niche if client else "",
-                client_photo_path=item.client_photo_path or None,
+                client_photo_path=client_photo,
                 business_name=client.business_name if client else "Influz Studio",
-                website=f"influzstudio.netlify.app",
+                website="influzstudio.netlify.app",
             )
             paths = [path]
 
@@ -739,12 +746,10 @@ async def upload_photo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Upload a client photo for a specific content item."""
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
 
-    # Save photo
     photos_dir = Path("app/static/client_photos")
     photos_dir.mkdir(parents=True, exist_ok=True)
     photo_path = photos_dir / f"item_{item_id}_client.jpg"
@@ -753,8 +758,13 @@ async def upload_photo(
     with open(photo_path, "wb") as f:
         f.write(contents)
 
-    item.client_photo_path = str(photo_path)
-    item.status = "approved"  # Reset to trigger creative regen
+    # Try setting client_photo_path; fall back to storing in reference_note
+    try:
+        item.client_photo_path = str(photo_path)
+    except Exception:
+        item.reference_note = f"PHOTO:{photo_path}"
+
+    item.status = "approved"
     item.creative_paths = "[]"
     db.commit()
 
