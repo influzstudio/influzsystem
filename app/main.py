@@ -750,6 +750,8 @@ async def upload_photo(
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
 
+    client_id = item.client_id
+
     photos_dir = Path("app/static/client_photos")
     photos_dir.mkdir(parents=True, exist_ok=True)
     photo_path = photos_dir / f"item_{item_id}_client.jpg"
@@ -758,18 +760,28 @@ async def upload_photo(
     with open(photo_path, "wb") as f:
         f.write(contents)
 
-    # Try setting client_photo_path; fall back to storing in reference_note
-    try:
-        item.client_photo_path = str(photo_path)
-    except Exception:
-        item.reference_note = f"PHOTO:{photo_path}"
-
-    item.status = "approved"
-    item.creative_paths = "[]"
-    db.commit()
+    # Use raw SQL to update — avoids ORM column issues
+    from sqlalchemy import text as _t
+    with engine.connect() as conn:
+        # Try adding columns if missing
+        for col, defn in [
+            ("client_photo_path", "VARCHAR DEFAULT ''"),
+            ("creative_paths", "TEXT DEFAULT '[]'"),
+        ]:
+            try:
+                conn.execute(_t(f"ALTER TABLE content_items ADD COLUMN {col} {defn}"))
+                conn.commit()
+            except Exception:
+                pass
+        # Update the record directly
+        conn.execute(_t(
+            "UPDATE content_items SET status='approved', "
+            "reference_note=:rn, creative_paths='[]' WHERE id=:id"
+        ), {"rn": f"PHOTO:{photo_path}", "id": item_id})
+        conn.commit()
 
     return RedirectResponse(
-        url=f"/client/{item.client_id}/creatives", status_code=303
+        url=f"/client/{client_id}/creatives", status_code=303
     )
 
 
