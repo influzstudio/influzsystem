@@ -1,15 +1,10 @@
 """
 Photo-based creative generation service.
-Fetches a relevant photo from Unsplash (or uses client-uploaded photo),
-then overlays text + logo using Pillow to produce a 1080x1080 PNG.
 """
-import os
-import io
-import json
-import textwrap
+import os, io, json, textwrap
 from pathlib import Path
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 
 CREATIVES_DIR = Path("app/static/creatives")
 CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
@@ -19,228 +14,203 @@ UNSPLASH_URL = "https://api.unsplash.com/search/photos"
 
 W, H = 1080, 1080
 
-# Brand colors
-TEAL    = (45, 212, 191)
-TEAL_A  = (45, 212, 191, 200)
-INK     = (244, 247, 246)
-BG_DARK = (14, 24, 34, 200)
-MINT    = (167, 232, 220)
+TEAL  = (45, 212, 191)
+INK   = (244, 247, 246)
+MINT  = (167, 232, 220)
+DARK  = (14, 24, 34)
 
 
 def _load_logo() -> Image.Image | None:
-    """Load the IS logo icon."""
     logo_path = Path("app/static/logo_b64.txt")
     if logo_path.exists():
         import base64
         b64 = logo_path.read_text().strip()
         img_bytes = base64.b64decode(b64)
         logo = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-        return logo.resize((80, 80), Image.LANCZOS)
+        return logo.resize((72, 72), Image.LANCZOS)
     return None
 
 
-def _fetch_unsplash_photo(query: str, niche: str) -> Image.Image | None:
-    """Fetch a relevant photo from Unsplash based on topic + niche."""
+def _fetch_unsplash(query: str, niche: str) -> Image.Image | None:
     if not UNSPLASH_ACCESS_KEY:
         return None
-    search_query = f"{query} {niche}".strip()[:60]
-    try:
-        resp = requests.get(
-            UNSPLASH_URL,
-            params={
-                "query": search_query,
-                "per_page": 5,
-                "orientation": "squarish",
-                "content_filter": "high",
-            },
-            headers={"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"},
-            timeout=10,
-        )
-        results = resp.json().get("results", [])
-        if not results:
-            # Try niche only
-            resp2 = requests.get(
-                UNSPLASH_URL,
-                params={"query": niche, "per_page": 3, "orientation": "squarish"},
+    for q in [f"{query} {niche}", niche, "social media marketing"]:
+        try:
+            resp = requests.get(UNSPLASH_URL,
+                params={"query": q, "per_page": 3, "orientation": "squarish",
+                        "content_filter": "high"},
                 headers={"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"},
-                timeout=10,
-            )
-            results = resp2.json().get("results", [])
-
-        if results:
-            photo_url = results[0]["urls"]["regular"]
-            img_resp = requests.get(photo_url, timeout=15)
-            img = Image.open(io.BytesIO(img_resp.content)).convert("RGBA")
-            # Crop to square 1080x1080
-            img = _crop_center(img, W, H)
-            return img
-    except Exception:
-        return None
+                timeout=10)
+            results = resp.json().get("results", [])
+            if results:
+                img_resp = requests.get(results[0]["urls"]["regular"], timeout=15)
+                img = Image.open(io.BytesIO(img_resp.content)).convert("RGBA")
+                return _crop_center(img, W, H)
+        except Exception:
+            continue
     return None
 
 
 def _crop_center(img: Image.Image, w: int, h: int) -> Image.Image:
-    """Crop image to exact size from center."""
-    img = img.resize((max(w, int(img.width * h / img.height)),
-                       max(h, int(img.height * w / img.width))), Image.LANCZOS)
+    ratio = max(w / img.width, h / img.height)
+    img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
     left = (img.width - w) // 2
-    top = (img.height - h) // 2
+    top  = (img.height - h) // 2
     return img.crop((left, top, left + w, top + h))
 
 
-def _dark_overlay(base: Image.Image, opacity: int = 140) -> Image.Image:
-    """Add a dark gradient overlay for text readability."""
-    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    # Bottom-heavy gradient: dark at bottom, lighter at top
-    for y in range(H):
-        alpha = int(opacity * (y / H) ** 0.6)
-        draw.line([(0, y), (W, y)], fill=(14, 24, 34, alpha))
-    return Image.alpha_composite(base, overlay)
-
-
-def _teal_accent_overlay(base: Image.Image) -> Image.Image:
-    """Add subtle teal corner accents."""
-    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    s, p = 90, 28
-    c = (*TEAL, 140)
-    # Corners
-    draw.line([(p, p+s), (p, p), (p+s, p)], fill=c, width=3)
-    draw.line([(W-p-s, p), (W-p, p), (W-p, p+s)], fill=c, width=3)
-    draw.line([(p, H-p-s), (p, H-p), (p+s, H-p)], fill=c, width=3)
-    draw.line([(W-p-s, H-p), (W-p, H-p), (W-p, H-p-s)], fill=c, width=3)
-    return Image.alpha_composite(base, overlay)
-
-
-def _get_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    """Try to load a system font, fallback to default."""
-    font_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf" if bold else "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    paths_bold = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     ]
-    for path in font_paths:
-        if Path(path).exists():
+    paths_reg = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ]
+    for p in (paths_bold if bold else paths_reg):
+        if Path(p).exists():
             try:
-                return ImageFont.truetype(path, size)
+                return ImageFont.truetype(p, size)
             except Exception:
                 continue
     return ImageFont.load_default()
 
 
-def _draw_text_with_shadow(draw: ImageDraw.Draw, pos: tuple, text: str,
-                            font, color: tuple, shadow_color=(0,0,0,180)):
-    """Draw text with drop shadow for readability on photos."""
-    x, y = pos
-    # Shadow
-    draw.text((x+3, y+3), text, font=font, fill=shadow_color)
-    # Main text
+def _shadow_text(draw, xy, text, font, color, shadow=(0,0,0,200)):
+    x, y = xy
+    draw.text((x+3, y+3), text, font=font, fill=shadow)
     draw.text((x, y), text, font=font, fill=color)
 
 
-def _compose_photo_creative(
-    photo: Image.Image,
-    cover_text: str,
-    image_text: str,
-    post_type: str,
-    business_name: str = "Influz Studio",
-    website: str = "influzstudio.netlify.app",
-) -> Image.Image:
-    """Compose the final creative: photo + overlays + text + logo."""
-    # Enhance photo
-    photo = photo.convert("RGBA")
-    enhancer = ImageEnhance.Brightness(photo)
-    photo = enhancer.enhance(0.75)  # Slightly darken for text contrast
+def _fit_text(text: str, font, max_width: int, draw) -> list[str]:
+    """Wrap text to fit within max_width pixels."""
+    words = text.split()
+    lines, current = [], ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
 
-    # Dark gradient overlay
-    photo = _dark_overlay(photo, opacity=200)
-    # Teal corner accents
-    photo = _teal_accent_overlay(photo)
+
+def _compose(photo: Image.Image, cover_text: str, image_text: str,
+             business_name: str, website: str) -> Image.Image:
+    # Darken photo
+    photo = photo.convert("RGBA")
+    photo = ImageEnhance.Brightness(photo).enhance(0.65)
+
+    # Gradient overlay — strong at bottom for text
+    overlay = Image.new("RGBA", (W, H), (0,0,0,0))
+    ov_draw = ImageDraw.Draw(overlay)
+    for y in range(H):
+        alpha = min(220, int(180 * (y / H) ** 0.5))
+        ov_draw.line([(0,y),(W,y)], fill=(*DARK, alpha))
+    photo = Image.alpha_composite(photo, overlay)
+
+    # Teal corner brackets
+    brk = Image.new("RGBA", (W,H), (0,0,0,0))
+    bd = ImageDraw.Draw(brk)
+    s, p = 80, 32
+    c = (*TEAL, 160)
+    bd.line([(p,p+s),(p,p),(p+s,p)], fill=c, width=3)
+    bd.line([(W-p-s,p),(W-p,p),(W-p,p+s)], fill=c, width=3)
+    bd.line([(p,H-p-s),(p,H-p),(p+s,H-p)], fill=c, width=3)
+    bd.line([(W-p-s,H-p),(W-p,H-p),(W-p,H-p-s)], fill=c, width=3)
+    photo = Image.alpha_composite(photo, brk)
 
     draw = ImageDraw.Draw(photo)
+    max_w = W - 144  # text max width
 
-    # ── Eyebrow ────────────────────────────────────────────────────────────
-    eyebrow_font = _get_font(22, bold=True)
-    draw.line([(72, 96), (108, 96)], fill=(*TEAL, 255), width=2)
-    _draw_text_with_shadow(draw, (120, 84), "INFLUZ STUDIO", eyebrow_font, (*TEAL, 255))
+    # ── Eyebrow ────────────────────────────────────────────────────────
+    eyebrow_f = _font(18, bold=True)
+    draw.line([(72, 88),(108, 88)], fill=(*TEAL,255), width=2)
+    _shadow_text(draw, (120, 76), "INFLUZ STUDIO", eyebrow_f, (*TEAL,255))
 
-    # ── Main headline ──────────────────────────────────────────────────────
-    # Split cover text into lines
+    # ── Headline — split into two parts, first white second teal ───────
     words = cover_text.split()
-    mid = max(1, len(words) // 2)
-    line1 = " ".join(words[:mid])
-    line2 = " ".join(words[mid:])
+    mid = max(1, len(words)//2)
+    part1 = " ".join(words[:mid])
+    part2 = " ".join(words[mid:])
 
-    headline_font = _get_font(72, bold=True)
-    y = H - 420
-    _draw_text_with_shadow(draw, (72, y), line1, headline_font, (*INK, 255))
-    _draw_text_with_shadow(draw, (72, y + 88), line2, headline_font, (*TEAL, 255))
+    # Dynamically size headline font to fit
+    for fsize in [72, 60, 52, 44, 36]:
+        hf = _font(fsize, bold=True)
+        lines1 = _fit_text(part1, hf, max_w, draw)
+        lines2 = _fit_text(part2, hf, max_w, draw)
+        total_h = (len(lines1) + len(lines2)) * (fsize + 12)
+        if total_h < 280:
+            break
 
-    # ── Subtext / image_text ───────────────────────────────────────────────
-    subtext_font = _get_font(28)
-    sub_lines = textwrap.wrap(image_text, width=42)[:2]
-    sub_y = y + 88 + 90
-    for line in sub_lines:
-        _draw_text_with_shadow(draw, (72, sub_y), line, subtext_font, (*MINT, 220))
-        sub_y += 38
+    y = H - 400
+    for line in lines1:
+        _shadow_text(draw, (72, y), line, hf, (*INK,255))
+        y += fsize + 10
 
-    # ── Footer line ────────────────────────────────────────────────────────
-    footer_y = H - 110
-    draw.line([(72, footer_y), (W - 72, footer_y)], fill=(*TEAL, 100), width=1)
+    y += 8  # small gap between parts
+    for line in lines2:
+        _shadow_text(draw, (72, y), line, hf, (*TEAL,255))
+        y += fsize + 10
 
-    # ── Logo ───────────────────────────────────────────────────────────────
+    # ── Subtext ────────────────────────────────────────────────────────
+    if image_text:
+        sf = _font(24)
+        sub_lines = _fit_text(image_text, sf, max_w, draw)[:2]
+        y += 8
+        for line in sub_lines:
+            _shadow_text(draw, (72, y), line, sf, (*MINT, 210))
+            y += 32
+
+    # ── Footer ─────────────────────────────────────────────────────────
+    footer_y = H - 108
+    draw.line([(72, footer_y),(W-72, footer_y)], fill=(*TEAL,80), width=1)
+
     logo = _load_logo()
-    logo_x, logo_y = 72, footer_y + 12
+    lx, ly = 72, footer_y + 10
     if logo:
-        photo.paste(logo, (logo_x, logo_y), logo)
-        text_x = logo_x + 90
+        photo.paste(logo, (lx, ly), logo)
+        tx = lx + 84
     else:
-        text_x = logo_x
+        tx = lx
 
-    brand_font = _get_font(20, bold=True)
-    small_font = _get_font(16)
-    _draw_text_with_shadow(draw, (text_x, footer_y + 16), business_name, brand_font, (*TEAL, 255))
-    _draw_text_with_shadow(draw, (text_x, footer_y + 42), "Crafting Digital Influence", small_font, (*MINT, 200))
+    bf = _font(18, bold=True)
+    rf = _font(15)
+    _shadow_text(draw, (tx, footer_y + 14), business_name, bf, (*TEAL,255))
+    _shadow_text(draw, (tx, footer_y + 40), "Crafting Digital Influence", rf, (*MINT,200))
 
-    # Website right side
-    web_font = _get_font(16)
-    _draw_text_with_shadow(draw, (W - 72 - 320, footer_y + 28), website, web_font, (180, 180, 180, 200))
+    # Website right-aligned
+    wb = draw.textbbox((0,0), website, font=rf)
+    wx = W - 72 - (wb[2]-wb[0])
+    _shadow_text(draw, (wx, footer_y + 26), website, rf, (180,180,180,200))
 
     return photo
 
 
-def generate_photo_creative(
-    item_id: int,
-    cover_text: str,
-    image_text: str,
-    post_type: str,
-    topic: str,
-    niche: str = "",
-    client_photo_path: str | None = None,
-    business_name: str = "Influz Studio",
-    website: str = "influzstudio.netlify.app",
-) -> str:
-    """Generate a photo-based 1080x1080 creative. Returns relative path."""
-    # Get base photo
+def generate_photo_creative(item_id, cover_text, image_text, post_type,
+                             topic, niche="", client_photo_path=None,
+                             business_name="Influz Studio",
+                             website="influzstudio.netlify.app") -> str:
     photo = None
-
     if client_photo_path and Path(client_photo_path).exists():
-        # Use client-uploaded photo
         photo = Image.open(client_photo_path).convert("RGBA")
         photo = _crop_center(photo, W, H)
     else:
-        # Fetch from Unsplash
-        photo = _fetch_unsplash_photo(topic, niche)
+        photo = _fetch_unsplash(topic, niche)
 
     if photo is None:
-        # No photo available — fall back to SVG-based creative
         from app.services.creative import generate_static_creative
         return generate_static_creative(item_id, cover_text, image_text, post_type, topic)
 
-    # Compose
-    final = _compose_photo_creative(photo, cover_text or topic, image_text or "", 
-                                     post_type, business_name, website)
+    final = _compose(photo, cover_text or topic, image_text or "", business_name, website)
     output = CREATIVES_DIR / f"item_{item_id}_photo.png"
     final.convert("RGB").save(str(output), "PNG", quality=95)
     return f"creatives/item_{item_id}_photo.png"

@@ -20,6 +20,21 @@ from app.services.pricing import POST_TYPES, calculate_item_cost, calculate_cale
 
 Base.metadata.create_all(bind=engine)
 
+# Safe column migrations for new fields
+from sqlalchemy import text as _text
+with engine.connect() as _conn:
+    for _col, _def in [
+        ("client_photo_path", "VARCHAR DEFAULT ''"),
+        ("creative_paths",    "TEXT DEFAULT '[]'"),
+        ("posted_at",         "VARCHAR DEFAULT ''"),
+        ("posted_to",         "TEXT DEFAULT '[]'"),
+    ]:
+        try:
+            _conn.execute(_text(f"ALTER TABLE content_items ADD COLUMN {_col} {_def}"))
+            _conn.commit()
+        except Exception:
+            pass
+
 app = FastAPI(title="Influz Studio - System")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
