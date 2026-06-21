@@ -761,6 +761,9 @@ async def upload_photo(
     return RedirectResponse(
         url=f"/client/{item.client_id}/creatives", status_code=303
     )
+
+
+@app.post("/content/{item_id}/approve-creative")
 def approve_creative(item_id: int, db: Session = Depends(get_db)):
     """
     Approve creative → auto-publish if post_date is today or past,

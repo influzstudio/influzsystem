@@ -43,7 +43,9 @@ def _fetch_unsplash(query: str, niche: str) -> Image.Image | None:
                 timeout=10)
             results = resp.json().get("results", [])
             if results:
-                img_resp = requests.get(results[0]["urls"]["regular"], timeout=15)
+                # Use 'full' size for best quality
+                photo_url = results[0]["urls"].get("full", results[0]["urls"]["regular"])
+                img_resp = requests.get(photo_url, timeout=30)
                 img = Image.open(io.BytesIO(img_resp.content)).convert("RGBA")
                 return _crop_center(img, W, H)
         except Exception:
@@ -143,12 +145,12 @@ def _compose(photo: Image.Image, cover_text: str, image_text: str,
     part2 = " ".join(words[mid:])
 
     # Dynamically size headline font to fit
-    for fsize in [72, 60, 52, 44, 36]:
+    for fsize in [82, 70, 60, 52, 44]:
         hf = _font(fsize, bold=True)
         lines1 = _fit_text(part1, hf, max_w, draw)
         lines2 = _fit_text(part2, hf, max_w, draw)
-        total_h = (len(lines1) + len(lines2)) * (fsize + 12)
-        if total_h < 280:
+        total_h = (len(lines1) + len(lines2)) * (fsize + 14)
+        if total_h < 320:
             break
 
     y = H - 400
@@ -212,5 +214,5 @@ def generate_photo_creative(item_id, cover_text, image_text, post_type,
 
     final = _compose(photo, cover_text or topic, image_text or "", business_name, website)
     output = CREATIVES_DIR / f"item_{item_id}_photo.png"
-    final.convert("RGB").save(str(output), "PNG", quality=95)
+    final.convert("RGB").save(str(output), "PNG", optimize=False, compress_level=1)
     return f"creatives/item_{item_id}_photo.png"
