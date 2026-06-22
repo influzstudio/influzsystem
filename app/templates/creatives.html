@@ -89,7 +89,7 @@
   {% if e.creative_paths %}
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
     {% for path in e.creative_paths %}
-    <img src="/static/{{ path }}" alt="Creative slide"
+    <img src="/creatives/{{ path.split('/')[-1] }}" alt="Creative slide"
          onclick="openLightbox(this.src)"
          style="width:200px;height:200px;object-fit:cover;border-radius:6px;
                 border:1px solid var(--line);cursor:zoom-in;transition:transform 0.2s;"

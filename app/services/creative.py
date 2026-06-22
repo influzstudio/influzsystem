@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import cairosvg
 
-CREATIVES_DIR = Path("app/static/creatives")
+CREATIVES_DIR = Path("/tmp/creatives")
 CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load logo base64

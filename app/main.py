@@ -4,7 +4,7 @@ import io
 import os
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -39,6 +39,15 @@ app = FastAPI(title="Influz Studio - System")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["fromjson"] = json.loads
+
+
+@app.get("/creatives/{filename}")
+def serve_creative(filename: str):
+    """Serve generated creatives from /tmp (Render writable filesystem)."""
+    path = Path(f"/tmp/creatives/{filename}")
+    if path.exists():
+        return FileResponse(str(path), media_type="image/png")
+    raise HTTPException(status_code=404, detail="Creative not found")
 
 
 def get_db():
@@ -752,7 +761,7 @@ async def upload_photo(
 
     client_id = item.client_id
 
-    photos_dir = Path("app/static/client_photos")
+    photos_dir = Path("/tmp/client_photos")
     photos_dir.mkdir(parents=True, exist_ok=True)
     photo_path = photos_dir / f"item_{item_id}_client.jpg"
 
@@ -807,7 +816,7 @@ def approve_creative(item_id: int, db: Session = Depends(get_db)):
         # Regenerate if files missing (ephemeral storage)
         full_paths = []
         for p in creative_paths:
-            full = f"app/static/{p}"
+            full = f"/tmp/{p}"
             if not os.path.exists(full):
                 try:
                     if item.post_type == "Carousel":
@@ -890,7 +899,7 @@ def publish_now(item_id: int, db: Session = Depends(get_db)):
     # Regenerate creative if file doesn't exist (Render ephemeral filesystem)
     full_paths = []
     for p in creative_paths:
-        full = f"app/static/{p}"
+        full = f"/tmp/{p}"
         if not os.path.exists(full):
             try:
                 if item.post_type == "Carousel":

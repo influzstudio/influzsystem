@@ -6,7 +6,7 @@ from pathlib import Path
 import requests
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 
-CREATIVES_DIR = Path("app/static/creatives")
+CREATIVES_DIR = Path("/tmp/creatives")
 CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
 
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
