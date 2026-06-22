@@ -43,10 +43,11 @@ templates.env.filters["fromjson"] = json.loads
 
 @app.get("/creatives/{filename}")
 def serve_creative(filename: str):
-    """Serve generated creatives from /tmp (Render writable filesystem)."""
-    path = Path(f"/tmp/creatives/{filename}")
-    if path.exists():
-        return FileResponse(str(path), media_type="image/png")
+    """Serve generated creatives from /tmp."""
+    for base in ["/tmp/creatives", "/tmp"]:
+        path = Path(f"{base}/{filename}")
+        if path.exists():
+            return FileResponse(str(path), media_type="image/png")
     raise HTTPException(status_code=404, detail="Creative not found")
 
 
@@ -755,43 +756,44 @@ async def upload_photo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Not found")
 
-    client_id = item.client_id
+        client_id = item.client_id
 
-    photos_dir = Path("/tmp/client_photos")
-    photos_dir.mkdir(parents=True, exist_ok=True)
-    photo_path = photos_dir / f"item_{item_id}_client.jpg"
+        photos_dir = Path("/tmp/client_photos")
+        photos_dir.mkdir(parents=True, exist_ok=True)
+        photo_path = photos_dir / f"item_{item_id}_client.jpg"
 
-    contents = await file.read()
-    with open(photo_path, "wb") as f:
-        f.write(contents)
+        contents = await file.read()
+        with open(photo_path, "wb") as f:
+            f.write(contents)
 
-    # Use raw SQL to update — avoids ORM column issues
-    from sqlalchemy import text as _t
-    with engine.connect() as conn:
-        # Try adding columns if missing
-        for col, defn in [
-            ("client_photo_path", "VARCHAR DEFAULT ''"),
-            ("creative_paths", "TEXT DEFAULT '[]'"),
-        ]:
-            try:
-                conn.execute(_t(f"ALTER TABLE content_items ADD COLUMN {col} {defn}"))
-                conn.commit()
-            except Exception:
-                pass
-        # Update the record directly
-        conn.execute(_t(
-            "UPDATE content_items SET status='approved', "
-            "reference_note=:rn, creative_paths='[]' WHERE id=:id"
-        ), {"rn": f"PHOTO:{photo_path}", "id": item_id})
-        conn.commit()
+        from sqlalchemy import text as _t
+        with engine.connect() as conn:
+            for col, defn in [
+                ("client_photo_path", "VARCHAR DEFAULT ''"),
+                ("creative_paths", "TEXT DEFAULT '[]'"),
+            ]:
+                try:
+                    conn.execute(_t(f"ALTER TABLE content_items ADD COLUMN {col} {defn}"))
+                    conn.commit()
+                except Exception:
+                    pass
+            conn.execute(_t(
+                "UPDATE content_items SET status='approved', "
+                "reference_note=:rn, creative_paths='[]' WHERE id=:id"
+            ), {"rn": f"PHOTO:{photo_path}", "id": item_id})
+            conn.commit()
 
-    return RedirectResponse(
-        url=f"/client/{client_id}/creatives", status_code=303
-    )
+        return RedirectResponse(url=f"/client/{client_id}/creatives", status_code=303)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @app.post("/content/{item_id}/approve-creative")
