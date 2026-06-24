@@ -29,7 +29,18 @@ FONTS = {
 }
 
 def _f(style: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONTS.get(style, FONTS["regular"]), size)
+    primary = FONTS.get(style, FONTS["regular"])
+    fallbacks = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if "bold" in style or "black" in style else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if "bold" in style or "black" in style else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for path in [primary] + fallbacks:
+        if Path(path).exists():
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
 def _load_logo(size=80) -> Image.Image | None:
     p = Path("app/static/logo_b64.txt")
