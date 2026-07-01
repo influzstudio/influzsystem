@@ -70,3 +70,37 @@ class LinkedInToken(Base):
     name = Column(String, default="")
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class YouTubeToken(Base):
+    """Stores YouTube OAuth tokens per client."""
+    __tablename__ = "youtube_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), unique=True, nullable=False)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, default="")
+    channel_id = Column(String, default="")
+    channel_name = Column(String, default="")
+    subscribers = Column(Integer, default=0)
+    expires_at = Column(String, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class YouTubeVideo(Base):
+    """Stores YouTube content calendar items."""
+    __tablename__ = "youtube_videos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    publish_date = Column(Date, nullable=False)
+    video_type = Column(String, default="Long")   # Short, Long, Live
+    title = Column(String, default="")
+    description = Column(Text, default="")
+    tags = Column(Text, default="[]")             # JSON list
+    thumbnail_text = Column(String, default="")
+    script_outline = Column(Text, default="")
+    content_angle = Column(String, default="")
+    status = Column(String, default="planned")    # planned, ready, uploaded, live
+    youtube_video_id = Column(String, default="") # after upload
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

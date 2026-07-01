@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}YouTube — {{ client.business_name }}{% endblock %}
+{% block content %}
+
+<div class="eyebrow">YouTube Growth</div>
+<h1 class="page-title">{{ client.business_name }}</h1>
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:32px;align-items:center;">
+  <a href="/client/{{ client.id }}" class="btn-secondary btn-small">← Calendar</a>
+  {% if yt_token %}
+  <div style="display:flex;align-items:center;gap:8px;background:rgba(255,0,0,0.1);border:1px solid #FF0000;border-radius:4px;padding:8px 16px;font-size:13px;">
+    <span style="color:#FF4444;">▶ YouTube connected</span>
+    <span style="color:var(--muted);">— {{ yt_token.channel_name }}</span>
+  </div>
+  {% else %}
+  <a href="/auth/youtube/start/{{ client.id }}" class="btn" style="background:#FF0000;">
+    Connect YouTube →
+  </a>
+  {% endif %}
+</div>
+
+{% if yt_token %}
+<!-- Channel Stats -->
+<div class="stats-grid" style="margin-bottom:32px;">
+  <div class="stat-card">
+    <div class="label">Subscribers</div>
+    <div class="value" style="color:#FF4444;">{{ yt_token.subscribers | default(0) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Videos planned</div>
+    <div class="value" style="color:var(--teal);">{{ videos | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Shorts</div>
+    <div class="value">{{ videos | selectattr('video_type', 'eq', 'Short') | list | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Long-form</div>
+    <div class="value">{{ videos | selectattr('video_type', 'eq', 'Long') | list | length }}</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Generate Calendar -->
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap;gap:16px;">
+  <h2 style="font-size:20px;font-weight:600;">Content calendar</h2>
+  <form action="/client/{{ client.id }}/youtube/generate" method="POST" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+    <div>
+      <label style="margin-bottom:6px;">Start date</label>
+      <input type="date" name="start_date" value="{{ today }}" style="margin:0;width:160px;">
+    </div>
+    <div>
+      <label style="margin-bottom:6px;">Videos to generate</label>
+      <input type="number" name="num_videos" value="12" min="4" max="30" style="margin:0;width:90px;">
+    </div>
+    <button type="submit" class="btn" style="background:#FF0000;">Generate YT Calendar ✦</button>
+  </form>
+</div>
+
+{% if videos %}
+<div style="display:flex;flex-direction:column;gap:16px;">
+{% for v in videos %}
+<div class="card" style="border-left:3px solid {% if v.video_type == 'Short' %}#A78BFA{% elif v.video_type == 'Long' %}var(--teal){% else %}#FBBF24{% endif %};">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <span class="badge">{{ v.publish_date.strftime('%d %b %Y') }}</span>
+        <span class="badge badge-muted" style="color:{% if v.video_type == 'Short' %}#A78BFA{% elif v.video_type == 'Long' %}var(--teal){% else %}#FBBF24{% endif %};">
+          {{ v.video_type }}
+        </span>
+        <span style="font-size:12px;color:var(--muted);">{{ v.status }}</span>
+      </div>
+      <p style="font-weight:700;font-size:16px;margin-bottom:6px;color:var(--ink);">{{ v.title }}</p>
+      <p style="font-size:13px;color:var(--teal);margin-bottom:8px;">🎯 {{ v.content_angle }}</p>
+      <p style="font-size:13px;color:var(--muted);font-style:italic;">Thumbnail: <b style="color:var(--ink);">{{ v.thumbnail_text }}</b></p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+      <button onclick="toggleYTDetail({{ v.id }})" class="btn-secondary btn-small">Details ↓</button>
+    </div>
+  </div>
+
+  <div id="yt-detail-{{ v.id }}" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div>
+        <label>Script outline</label>
+        <div style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:12px;font-size:13px;color:var(--muted);white-space:pre-wrap;">{{ v.script_outline }}</div>
+      </div>
+      <div>
+        <label>Tags</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+          {% for tag in v.tags | fromjson %}
+          <span style="background:rgba(45,212,191,0.1);border:1px solid var(--teal);border-radius:20px;padding:3px 10px;font-size:12px;color:var(--teal);">{{ tag }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <label>Description</label>
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:12px;font-size:13px;color:var(--muted);white-space:pre-wrap;max-height:160px;overflow-y:auto;">{{ v.description }}</div>
+    <div style="display:flex;gap:12px;margin-top:12px;">
+      <button onclick="copyText('desc-{{ v.id }}')" class="btn-secondary btn-small">Copy description</button>
+      <button onclick="copyText('title-{{ v.id }}')" class="btn-secondary btn-small">Copy title</button>
+      <span id="desc-{{ v.id }}" style="display:none;">{{ v.description }}</span>
+      <span id="title-{{ v.id }}" style="display:none;">{{ v.title }}</span>
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% else %}
+<div class="card empty-state">
+  <h3>No YouTube calendar yet</h3>
+  <p>Click "Generate YT Calendar" to create an AI-powered video plan for your channel.</p>
+</div>
+{% endif %}
+
+<script>
+function toggleYTDetail(id){
+  const el = document.getElementById('yt-detail-'+id);
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+function copyText(id){
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = btn.textContent.replace('Copied!', 'Copy description').replace('Copied!', 'Copy title'), 2000);
+  });
+}
+</script>
+{% endblock %}

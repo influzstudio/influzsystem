@@ -989,3 +989,123 @@ def creatives_page(request: Request, client_id: int, db: Session = Depends(get_d
             "li_token": li_token,
         },
     )
+
+
+# ── YouTube Integration ────────────────────────────────────────────────────────
+from app.services.youtube import get_auth_url as yt_auth_url, exchange_code_for_token as yt_exchange, get_channel_stats
+from app.services.yt_content import generate_youtube_calendar
+from app.models.client import YouTubeToken, YouTubeVideo
+
+# Ensure tables exist
+Base.metadata.create_all(bind=engine)
+
+
+@app.get("/client/{client_id}/youtube", response_class=HTMLResponse)
+def youtube_page(request: Request, client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Not found")
+    yt_token = db.query(YouTubeToken).filter(YouTubeToken.client_id == client_id).first()
+    videos = db.query(YouTubeVideo).filter(YouTubeVideo.client_id == client_id).order_by(YouTubeVideo.publish_date).all()
+    return templates.TemplateResponse("youtube.html", {
+        "request": request, "client": client,
+        "yt_token": yt_token, "videos": videos,
+        "today": date.today().isoformat(),
+    })
+
+
+@app.get("/auth/youtube/start/{client_id}")
+def youtube_auth_start(client_id: int, request: Request):
+    state = f"{client_id}:{secrets.token_hex(8)}"
+    request.session["yt_oauth_state"] = state
+    return RedirectResponse(url=yt_auth_url(state))
+
+
+@app.get("/auth/youtube/callback")
+def youtube_auth_callback(
+    request: Request,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    db: Session = Depends(get_db),
+):
+    if error or not code:
+        return HTMLResponse(f"<p style='color:red'>YouTube auth failed: {error}</p>")
+
+    stored = request.session.get("yt_oauth_state", "")
+    client_id = int(stored.split(":")[0]) if stored else 1
+
+    token_data = yt_exchange(code)
+    access_token = token_data.get("access_token", "")
+    refresh_token = token_data.get("refresh_token", "")
+
+    # Get channel stats
+    try:
+        stats = get_channel_stats(access_token)
+    except Exception:
+        stats = {"channel_id": "", "channel_name": "ZenTraders", "subscribers": 0}
+
+    existing = db.query(YouTubeToken).filter(YouTubeToken.client_id == client_id).first()
+    if existing:
+        existing.access_token = access_token
+        existing.refresh_token = refresh_token
+        existing.channel_id = stats.get("channel_id", "")
+        existing.channel_name = stats.get("channel_name", "")
+        existing.subscribers = stats.get("subscribers", 0)
+    else:
+        db.add(YouTubeToken(
+            client_id=client_id,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            channel_id=stats.get("channel_id", ""),
+            channel_name=stats.get("channel_name", ""),
+            subscribers=stats.get("subscribers", 0),
+        ))
+    db.commit()
+    return RedirectResponse(url=f"/client/{client_id}/youtube?yt=connected")
+
+
+@app.post("/client/{client_id}/youtube/generate")
+def generate_yt_calendar(
+    client_id: int,
+    start_date: str = Form(None),
+    num_videos: int = Form(12),
+    db: Session = Depends(get_db),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Clear existing planned videos
+    db.query(YouTubeVideo).filter(
+        YouTubeVideo.client_id == client_id,
+        YouTubeVideo.status == "planned"
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    start = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else date.today()
+
+    videos = generate_youtube_calendar(
+        channel_name=client.business_name,
+        niche=client.niche,
+        goals=client.goals,
+        start_date=start,
+        num_days=30,
+        num_videos=num_videos,
+    )
+
+    for v in videos:
+        db.add(YouTubeVideo(
+            client_id=client.id,
+            publish_date=datetime.strptime(v["publish_date"], "%Y-%m-%d").date(),
+            video_type=v.get("video_type", "Long"),
+            title=v.get("title", ""),
+            description=v.get("description", ""),
+            tags=json.dumps(v.get("tags", [])),
+            thumbnail_text=v.get("thumbnail_text", ""),
+            script_outline=v.get("script_outline", ""),
+            content_angle=v.get("content_angle", ""),
+            status="planned",
+        ))
+    db.commit()
+    return RedirectResponse(url=f"/client/{client_id}/youtube", status_code=303)
