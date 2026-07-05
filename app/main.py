@@ -1022,6 +1022,7 @@ def youtube_auth_start(client_id: int, request: Request):
 
 
 @app.get("/auth/youtube/callback")
+@app.get("/auth/youtube/callback")
 def youtube_auth_callback(
     request: Request,
     code: str = None,
@@ -1035,7 +1036,11 @@ def youtube_auth_callback(
     stored = request.session.get("yt_oauth_state", "")
     client_id = int(stored.split(":")[0]) if stored else 1
 
-    token_data = yt_exchange(code)
+    try:
+        token_data = yt_exchange(code)
+    except Exception as e:
+        return HTMLResponse(f"<p style='color:red'>Token exchange failed: {e}</p>")
+
     access_token = token_data.get("access_token", "")
     refresh_token = token_data.get("refresh_token", "")
 
