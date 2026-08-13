@@ -1,0 +1,77 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ "Edit" if client else "New" }} Client — Influz Studio{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="eyebrow">Clients</div>
+  <div class="page-title">{{ "Edit " ~ client.business_name if client else "New Client" }}</div>
+</div>
+<div class="card" style="max-width:760px;">
+  <form method="POST" action="{{ '/clients/'~client.id~'/edit' if client else '/clients/new' }}" enctype="multipart/form-data">
+
+    <div class="card-title">Basics</div>
+    <div class="grid-2">
+      <div><label>Business Name</label><input type="text" name="business_name" required placeholder="e.g. Wanderlust Travels" value="{{ client.business_name if client else '' }}"></div>
+      <div><label>Industry / Niche</label><input type="text" name="industry" required placeholder="e.g. Travel, LED Lighting, Finance" value="{{ client.industry if client else '' }}"></div>
+    </div>
+    <div class="grid-2">
+      <div><label>Website URL</label><input type="url" name="website_url" placeholder="https://example.com" value="{{ client.website_url if client else '' }}"></div>
+      <div><label>Instagram Handle</label><input type="text" name="instagram_handle" placeholder="@wanderlust.travels" value="{{ client.instagram_handle if client else '' }}"></div>
+    </div>
+    <label>Brand Voice</label><input type="text" name="brand_voice" required placeholder="e.g. adventurous, trustworthy, premium" value="{{ client.brand_voice if client else '' }}">
+    <label>USP (Unique Selling Proposition)</label>
+    <textarea name="usp" placeholder="What makes this business unique?">{{ client.usp if client else '' }}</textarea>
+
+    <div class="card-title" style="margin-top:8px;">What They Sell — powers AI content specificity</div>
+    <label>Services (comma-separated)</label>
+    <textarea name="services" placeholder="e.g. Custom itinerary planning, Honeymoon packages, Corporate travel, Visa assistance">{{ client.services|join(', ') if client and client.services else '' }}</textarea>
+    <label>Key Products / Packages (comma-separated)</label>
+    <textarea name="products" placeholder="e.g. Bali 5N/6D Package, Europe Grand Tour, Weekend Getaways">{{ client.products|join(', ') if client and client.products else '' }}</textarea>
+    <div class="grid-2">
+      <div>
+        <label>Price Range / Positioning</label>
+        <input type="text" name="price_range" placeholder="e.g. Premium (₹50k-2L per trip), Budget-friendly, Mid-range" value="{{ client.price_range if client else '' }}">
+      </div>
+      <div>
+        <label>City</label><input type="text" name="city" placeholder="e.g. Mumbai, Delhi, Noida" value="{{ client.city if client else '' }}">
+      </div>
+    </div>
+    <label>Target Audience</label>
+    <textarea name="target_audience" placeholder="e.g. Working professionals 28-45, urban India, value curated experiences over budget backpacking, active on Instagram">{{ client.target_audience if client else '' }}</textarea>
+    <label>Content Pillars (comma-separated, optional)</label>
+    <input type="text" name="content_pillars" placeholder="e.g. Destination guides, Client testimonials, Behind the scenes, Travel tips" value="{{ client.content_pillars|join(', ') if client and client.content_pillars else '' }}">
+    <label>Competitors (optional context)</label>
+    <textarea name="competitors" placeholder="Who they compete with and how they differ">{{ client.competitors if client else '' }}</textarea>
+
+    <label>Goals</label>
+    <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+      {% set client_goals = client.goals if client and client.goals else [] %}
+      {% for g in ["leads","awareness","sales","engagement","seo"] %}
+      <label style="display:flex;align-items:center;gap:6px;color:var(--ink);font-size:14px;margin-bottom:0;">
+        <input type="checkbox" name="goals" value="{{ g }}" style="width:auto;margin:0;" {% if g in client_goals %}checked{% endif %}> {{ g.title() }}
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="card-title" style="margin-top:8px;">Brand Identity — used on every creative</div>
+    <div class="grid-2">
+      <div>
+        <label>Primary Brand Color</label>
+        <input type="color" name="brand_color_primary" style="height:44px;padding:4px;cursor:pointer;" value="{{ client.brand_colors.primary if client and client.brand_colors else '#2DD4BF' }}">
+      </div>
+      <div>
+        <label>Secondary / Background Color</label>
+        <input type="color" name="brand_color_secondary" style="height:44px;padding:4px;cursor:pointer;" value="{{ client.brand_colors.secondary if client and client.brand_colors else '#0E1822' }}">
+      </div>
+    </div>
+    <label>Client Logo (PNG, transparent background preferred)</label>
+    <input type="file" name="logo" accept="image/png,image/jpeg,image/webp">
+    {% if client and client.logo_path %}
+    <div style="margin:-8px 0 16px;font-size:12px;color:var(--muted);">
+      Current logo: <img src="/{{ client.logo_path }}" style="height:32px;vertical-align:middle;border-radius:4px;margin-left:6px;">
+    </div>
+    {% endif %}
+
+    <button type="submit" class="btn">{{ "Save Changes →" if client else "Create Client →" }}</button>
+  </form>
+</div>
+{% endblock %}

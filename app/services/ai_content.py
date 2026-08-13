@@ -1,143 +1,116 @@
-import os
-import json
-import re
-from datetime import date, timedelta, datetime
-import anthropic
-
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-SYSTEM_PROMPT = """You are a senior social media content strategist working for Influz Studio, \
-an AI-powered social media management studio. Generate a professional content calendar for a \
-client business covering {num_posts} posts spread across a {num_days}-day period starting {start_date}.
-
-Return ONLY valid JSON — an array of exactly {num_posts} objects, ordered chronologically, \
-with this EXACT structure:
-
-[
-  {{
-    "post_date": "YYYY-MM-DD (a specific date within the period, posts spaced naturally — \
-not every day, spread with realistic variation)",
-    "post_type": "Reel | Static | Carousel | Story | UGC",
-    "topic": "The creative angle — a punchy, specific content idea (e.g. 'Before & After — \
-Bedroom Transformation', 'Monsoon Mood — Warm Lighting for Grey Days'). Max 8 words.",
-    "cover_text": "The main headline text shown on the post image. Short, punchy. Max 10 words.",
-    "image_text": "Supporting visual copy shown inside the image (subtext, slide labels, or \
-tagline). Max 15 words.",
-    "caption": "Full ready-to-post caption with emojis, a CTA (e.g. DM us, link in bio, \
-comment below), and 8-10 relevant hashtags at the end. 3-5 sentences.",
-    "platforms": ["instagram"] or ["facebook"] or ["instagram", "facebook"],
-    "reference_note": "A brief description of the type of reference visual to look for \
-(e.g. 'Warm toned bedroom reel with COB lighting', 'Minimal white product flat lay'). \
-Not a URL — just a visual direction note."
-  }}
-]
-
-Do not include any text before or after the JSON array. Do not use markdown code fences.
-
-Guidelines:
-- Post type mix roughly: 35% Static, 25% Reel, 25% Carousel, 10% Story, 5% UGC
-- Captions must be specific to the business, niche, and brand voice — NOT generic filler
-- Each post should have a distinct topic — no two posts with the same angle
-- Include at least 2 posts tied to upcoming festivals/events if the dates fall in the period
-- Instagram is always included; Facebook added on roughly every 3rd post
-- Hashtags must be relevant to the niche and include 1-2 location-specific tags if city is known
-- CTAs should vary (DM a keyword, comment below, link in bio, share with someone)
-- UGC posts should feel like genuine customer reposts with a warm, appreciative tone"""
+import os, json, re
+from datetime import date, timedelta
 
 
-def _build_user_prompt(business_name: str, niche: str, brand_voice: str, goals: str, city: str = "") -> str:
-    location_line = f"City/location: {city}\n" if city else ""
-    return (
-        f"Business name: {business_name}\n"
-        f"Industry/niche: {niche}\n"
-        f"Brand voice: {brand_voice}\n"
-        f"Goals: {goals}\n"
-        f"{location_line}\n"
-        f"Generate the content calendar as specified."
+def _call_gemini(prompt, max_tokens=8000):
+    """Call Gemini using the official google-genai SDK which handles AQ. keys."""
+    import google.genai as genai
+    key = os.getenv("GEMINI_API_KEY", "")
+    client = genai.Client(api_key=key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
+    return response.text.strip()
+
+
+def _build_prompt(business_name, niche, brand_voice, goals, city, usp, services,
+                   products, target_audience, price_range, content_pillars,
+                   competitors, start_date, num_posts):
+    services_txt = ", ".join(services) if services else "(not specified — infer typical services for this niche)"
+    products_txt = ", ".join(products) if products else "(not specified — infer from services/niche)"
+    pillars_txt = ", ".join(content_pillars) if content_pillars else "(pick pillars that fit the services and audience below)"
+
+    return f"""You are the social media strategist for {business_name}, a {niche} business{f" in {city}" if city else ""}.
+Write a {num_posts}-post content calendar that could ONLY belong to this exact business — not a generic {niche} template.
+
+BUSINESS PROFILE
+- Business: {business_name}
+- Industry / niche: {niche}
+- Brand voice: {brand_voice}
+- USP (what makes them different): {usp or "not specified"}
+- Services offered: {services_txt}
+- Key products / packages to feature: {products_txt}
+- Price range / market positioning: {price_range or "not specified"}
+- Target audience: {target_audience or "not specified — infer a realistic ideal customer for this niche and price point"}
+- Competitors / differentiation context: {competitors or "not specified"}
+- Marketing goals: {goals or "general growth"}
+- Content pillars to rotate through: {pillars_txt}
+- Location: {city or "not specified"}
+
+RULES
+1. Every post must reference something concrete from the profile above — a specific service, product/package name, price point, audience pain point, or local detail. Do not write posts that could apply to any random business in this niche.
+2. Rotate through the services/products and content pillars across the calendar so no single offering is repeated too often; spread promotional posts, educational posts, social proof, and engagement posts across the period.
+3. Match tone strictly to the brand voice given.
+4. Captions should speak directly to the target audience's motivations and price sensitivity described above.
+5. No placeholder text like "[insert product]" or "your business" — always use real specifics from the profile.
+6. When post_type is "Carousel", also fill carousel_slides with 4-6 slide objects that tell a real structured sequence: slide 1 is the hook (matches cover_text), the middle slides each cover ONE distinct concrete point (a specific inclusion, a price detail, a benefit, a testimonial-style line — never restate the same idea twice), and the final slide is a clear call-to-action naming how to act (DM, link in bio, call, visit website). Each slide needs slide_headline (max 6 words) and slide_subtext (max 12 words). For any other post_type, set carousel_slides to [].
+
+Start date: {start_date} | Period: 60 days
+
+Return ONLY a JSON array with {num_posts} objects, each having:
+post_date (YYYY-MM-DD), post_type (Static/Reel/Carousel/Story/UGC), platforms (list),
+topic (specific, max 10 words, must name a real service/product/pillar from above),
+cover_text (headline, max 8 words), image_text (supporting copy, max 12 words),
+caption (full with emojis+hashtags, speaks to the target audience directly),
+reference_note (visual direction — what should be photographed/shown), content_angle (the hook/pillar this post uses),
+carousel_slides (see rule 6 — [] unless post_type is Carousel)
+
+Output raw JSON only. No markdown fences, no preamble."""
+
+
+def generate_social_calendar(business_name, niche, brand_voice, goals, city, start_date, num_posts=16,
+                              usp="", services=None, products=None, target_audience="",
+                              price_range="", content_pillars=None, competitors=""):
+    prompt = _build_prompt(
+        business_name=business_name, niche=niche, brand_voice=brand_voice, goals=goals, city=city,
+        usp=usp, services=services or [], products=products or [], target_audience=target_audience,
+        price_range=price_range, content_pillars=content_pillars or [], competitors=competitors,
+        start_date=start_date, num_posts=num_posts,
     )
 
-
-def _spaced_date(start_date: date, num_days: int, num_posts: int, index: int) -> date:
-    if num_posts <= 1:
-        offset = 0
-    else:
-        offset = round(index * (num_days - 1) / (num_posts - 1))
-    offset = max(0, min(offset, num_days - 1))
-    return start_date + timedelta(days=offset)
-
-
-def _fallback_calendar(business_name: str, niche: str, start_date: date, num_days: int, num_posts: int) -> list[dict]:
-    type_cycle = ["Static", "Reel", "Carousel", "Story", "UGC", "Static", "Reel", "Carousel"]
-    platform_cycle = [["instagram"], ["instagram"], ["instagram", "facebook"], ["instagram"]]
-    items = []
-    for i in range(num_posts):
-        items.append({
-            "post_date": _spaced_date(start_date, num_days, num_posts, i).isoformat(),
-            "post_type": type_cycle[i % len(type_cycle)],
-            "topic": f"{niche.title()} content idea {i + 1}",
-            "cover_text": f"Sample cover text — edit before approving",
-            "image_text": f"Sample image text",
-            "caption": f"Sample caption for {business_name} (post {i + 1}). Edit before approving. #socialmedia #{niche.replace(' ', '')} #influzstudio",
-            "platforms": platform_cycle[i % len(platform_cycle)],
-            "reference_note": f"Look for a clean {niche} reference image on Pinterest or Instagram.",
-        })
-    return items
-
-
-def _validate_and_sort(items: list[dict], start_date: date, num_days: int, num_posts: int) -> list[dict]:
-    end_date_excl = start_date + timedelta(days=num_days)
-    for i, item in enumerate(items):
-        valid = False
-        raw = item.get("post_date", "")
+    # Try Anthropic first
+    ak = os.getenv("ANTHROPIC_API_KEY")
+    if ak:
         try:
-            d = datetime.strptime(raw, "%Y-%m-%d").date()
-            if start_date <= d < end_date_excl:
-                valid = True
-        except (ValueError, TypeError):
-            pass
-        if not valid:
-            item["post_date"] = _spaced_date(start_date, num_days, num_posts, i).isoformat()
-    items.sort(key=lambda x: x["post_date"])
-    return items
+            import anthropic
+            c = anthropic.Anthropic(api_key=ak)
+            r = c.messages.create(model="claude-sonnet-4-6", max_tokens=12000,
+                messages=[{"role": "user", "content": prompt}])
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", r.content[0].text.strip())
+            items = json.loads(raw)
+            if isinstance(items, list) and items: return items[:num_posts]
+        except Exception as e:
+            if "credit" not in str(e).lower(): print(f"Anthropic error: {e}")
 
-
-def generate_content_calendar(
-    business_name: str,
-    niche: str,
-    brand_voice: str,
-    goals: str,
-    start_date: date,
-    num_days: int = 60,
-    num_posts: int = 32,
-    city: str = "",
-) -> list[dict]:
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
-    else:
+    # Try Gemini
+    if os.getenv("GEMINI_API_KEY"):
         try:
-            response = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=12000,
-                system=SYSTEM_PROMPT.format(
-                    num_days=num_days, num_posts=num_posts, start_date=start_date.isoformat()
-                ),
-                messages=[{
-                    "role": "user",
-                    "content": _build_user_prompt(business_name, niche, brand_voice, goals, city),
-                }],
-            )
-            raw_text = "".join(
-                block.text for block in response.content if block.type == "text"
-            ).strip()
-            raw_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip())
-            items = json.loads(raw_text)
-            if not (isinstance(items, list) and len(items) > 0):
-                items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
-            elif len(items) < num_posts:
-                items += _fallback_calendar(business_name, niche, start_date, num_days, num_posts - len(items))
-            elif len(items) > num_posts:
-                items = items[:num_posts]
-        except Exception:
-            items = _fallback_calendar(business_name, niche, start_date, num_days, num_posts)
+            raw = _call_gemini(prompt)
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
+            items = json.loads(raw)
+            if isinstance(items, list) and items: return items[:num_posts]
+        except Exception as e:
+            print(f"Gemini error: {e}")
 
-    return _validate_and_sort(items, start_date, num_days, num_posts)
+    # Try Groq (free) — primary path for this deployment
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            from app.services.ai_base import call_ai_groq
+            raw = call_ai_groq(prompt, max_tokens=8000)
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
+            items = json.loads(raw)
+            if isinstance(items, list) and items: return items[:num_posts]
+        except Exception as e:
+            print(f"Groq error: {e}")
+
+    return _fallback(start_date, num_posts, business_name)
+
+
+def _fallback(start_date, num, name):
+    types = ["Static","Reel","Carousel","Story","UGC"]
+    return [{"post_date": (start_date+timedelta(days=i*2)).isoformat(),
+             "post_type": types[i%5], "platforms": ["instagram"],
+             "topic": f"Content idea {i+1}", "cover_text": f"Post {i+1}",
+             "image_text": "", "caption": f"Sample caption for {name}. #socialmedia",
+             "reference_note": "", "content_angle": ""} for i in range(num)]

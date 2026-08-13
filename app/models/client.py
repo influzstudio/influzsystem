@@ -1,106 +1,79 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Float, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
-from app.database import Base
+from app.models.base import Base
 
 
 class Client(Base):
     __tablename__ = "clients"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id            = Column(Integer, primary_key=True)
+    slug          = Column(String, unique=True, nullable=False)  # url-safe name
     business_name = Column(String, nullable=False)
-    niche = Column(String, nullable=False)
-    brand_voice = Column(String, nullable=False)
-    goals = Column(Text, nullable=False)
-    city = Column(String, default="")
-    instagram_handle = Column(String, default="")
-    facebook_page = Column(String, default="")
-    notes = Column(Text, default="")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    industry      = Column(String, default="")         # travel, retail, finance, etc.
+    website_url   = Column(String, default="")
+    logo_path     = Column(String, default="")
+    brand_colors  = Column(JSON, default={"primary": "#2DD4BF", "secondary": "#0E1822"})
+    brand_voice   = Column(Text, default="")
+    usp           = Column(Text, default="")           # unique selling proposition
+    goals         = Column(JSON, default=[])           # ["leads", "awareness", "sales"]
+    city          = Column(String, default="")
+    country       = Column(String, default="India")
 
-    # Package & pricing
-    posts_per_month = Column(Integer, default=16)
-    rate_story = Column(Float, default=150.0)
-    rate_post = Column(Float, default=300.0)
-    rate_carousel = Column(Float, default=500.0)
-    rate_reel = Column(Float, default=800.0)
-    rate_ugc = Column(Float, default=600.0)
-    rate_on_demand = Column(Float, default=1000.0)
+    # Deeper onboarding data — feeds AI content generation & creative branding
+    services        = Column(JSON, default=[])         # ["Interior Design", "Space Planning", ...]
+    products        = Column(JSON, default=[])         # specific products/packages to feature
+    target_audience = Column(Text, default="")          # who they sell to — demographics, psychographics
+    price_range     = Column(String, default="")        # "Budget", "Mid-range", "Premium", "₹5k-50k", etc.
+    content_pillars = Column(JSON, default=[])          # recurring themes e.g. ["Behind the scenes","Tips","Testimonials"]
+    competitors     = Column(Text, default="")           # optional differentiation context
+    instagram_handle= Column(String, default="")
+    is_active     = Column(Boolean, default=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 
-    content_items = relationship(
-        "ContentItem", back_populates="client", cascade="all, delete-orphan"
-    )
-
-
-class ContentItem(Base):
-    __tablename__ = "content_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    post_date = Column(Date, nullable=False)
-    post_type = Column(String, default="Static")  # Static, Reel, Carousel, Story, UGC
-    platforms = Column(Text, default="[]")
-    topic = Column(String, default="")          # Creative angle
-    cover_text = Column(String, default="")     # Headline text on image
-    image_text = Column(String, default="")     # Supporting visual copy
-    caption = Column(Text, default="")          # Full ready-to-post caption + hashtags
-    hashtags = Column(Text, default="[]")       # Legacy field kept for compat
-    reference_note = Column(Text, default="")   # Visual reference direction
-    client_feedback = Column(Text, default="")  # Space for client notes
-    client_photo_path = Column(String, default="")  # Path to client-uploaded photo
-    status = Column(String, default="generated")  # generated, approved, scheduled, posted
-    is_on_demand = Column(Boolean, default=False)
-    creative_paths = Column(Text, default="[]")   # JSON list of generated PNG paths
-    posted_at = Column(String, default="")         # ISO date when posted
-    posted_to = Column(Text, default="[]")         # JSON list of platforms posted to
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    client = relationship("Client", back_populates="content_items")
+    # Relations
+    audience_segments   = relationship("AudienceSegment", back_populates="client", cascade="all, delete-orphan")
+    platforms           = relationship("Platform", back_populates="client", cascade="all, delete-orphan")
+    social_posts        = relationship("SocialPost", back_populates="client", cascade="all, delete-orphan")
+    seo_keywords        = relationship("SEOKeyword", back_populates="client", cascade="all, delete-orphan")
+    seo_pages           = relationship("SEOPage", back_populates="client", cascade="all, delete-orphan")
+    ad_campaigns        = relationship("AdCampaign", back_populates="client", cascade="all, delete-orphan")
+    leads               = relationship("Lead", back_populates="client", cascade="all, delete-orphan")
+    website_pages       = relationship("WebsitePage", back_populates="client", cascade="all, delete-orphan")
+    monthly_reports     = relationship("MonthlyReport", back_populates="client", cascade="all, delete-orphan")
+    tasks               = relationship("Task", back_populates="client", cascade="all, delete-orphan")
+    users               = relationship("ClientUser", back_populates="client", cascade="all, delete-orphan")
 
 
-class LinkedInToken(Base):
-    """Stores LinkedIn OAuth tokens per client."""
-    __tablename__ = "linkedin_tokens"
+class AudienceSegment(Base):
+    __tablename__ = "audience_segments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), unique=True, nullable=False)
-    access_token = Column(Text, nullable=False)
-    person_urn = Column(String, nullable=False)  # LinkedIn sub / person ID
-    name = Column(String, default="")
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class YouTubeToken(Base):
-    """Stores YouTube OAuth tokens per client."""
-    __tablename__ = "youtube_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), unique=True, nullable=False)
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text, default="")
-    channel_id = Column(String, default="")
-    channel_name = Column(String, default="")
-    subscribers = Column(Integer, default=0)
-    expires_at = Column(String, default="")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class YouTubeVideo(Base):
-    """Stores YouTube content calendar items."""
-    __tablename__ = "youtube_videos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    publish_date = Column(Date, nullable=False)
-    video_type = Column(String, default="Long")   # Short, Long, Live
-    title = Column(String, default="")
+    id          = Column(Integer, primary_key=True)
+    client_id   = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    name        = Column(String, nullable=False)       # "Honeymooners", "Budget Backpackers"
     description = Column(Text, default="")
-    tags = Column(Text, default="[]")             # JSON list
-    thumbnail_text = Column(String, default="")
-    script_outline = Column(Text, default="")
-    content_angle = Column(String, default="")
-    status = Column(String, default="planned")    # planned, ready, uploaded, live
-    youtube_video_id = Column(String, default="") # after upload
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    age_range   = Column(String, default="")
+    interests   = Column(JSON, default=[])
+    pain_points = Column(JSON, default=[])
+    platforms   = Column(JSON, default=[])             # where they hang out
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    client = relationship("Client", back_populates="audience_segments")
+
+
+class Platform(Base):
+    __tablename__ = "platforms"
+
+    id           = Column(Integer, primary_key=True)
+    client_id    = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    platform     = Column(String, nullable=False)      # instagram, facebook, youtube, linkedin, gsc, ga4, meta_ads, google_ads
+    access_token = Column(Text, default="")
+    refresh_token= Column(Text, default="")
+    account_id   = Column(String, default="")
+    account_name = Column(String, default="")
+    extra_data   = Column(JSON, default={})            # platform-specific data
+    is_active    = Column(Boolean, default=True)
+    connected_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    client = relationship("Client", back_populates="platforms")

@@ -1,0 +1,105 @@
+{% extends "admin/base.html" %}
+{% block title %}Creatives — {{ client.business_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="eyebrow">{{ client.business_name }}</div>
+  <div class="page-title">Creative Pipeline</div>
+</div>
+<div class="module-nav">
+  <a href="/clients/{{ client.id }}" class="module-btn">← Overview</a>
+  <a href="/clients/{{ client.id }}/social" class="module-btn">◉ Social</a>
+  <a href="/clients/{{ client.id }}/creatives" class="module-btn active">◈ Creatives</a>
+  <a href="/clients/{{ client.id }}/seo" class="module-btn">⊕ SEO</a>
+  <a href="/clients/{{ client.id }}/ads" class="module-btn">◎ Ads</a>
+</div>
+
+<!-- Legend -->
+<div style="display:flex;gap:20px;margin-bottom:24px;flex-wrap:wrap;font-size:13px;">
+  {% for color, label in [('#7E8FA0','Approved — awaiting creative'),('#FBBF24','Creative ready — needs review'),('#2DD4BF','Creative approved — ready to post'),('#34D399','Posted')] %}
+  <div style="display:flex;align-items:center;gap:6px;">
+    <span style="width:10px;height:10px;border-radius:50%;background:{{ color }};display:inline-block;"></span>
+    <span style="color:var(--muted);">{{ label }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+{% if posts %}
+<div style="display:flex;flex-direction:column;gap:12px;">
+{% for post in posts %}
+<div class="card" style="border-left:4px solid {% if post.status=='approved' %}#7E8FA0{% elif post.status=='creative_ready' %}#FBBF24{% elif post.status=='creative_approved' %}var(--teal){% else %}#34D399{% endif %};">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <span class="badge badge-draft">{{ post.post_date.strftime('%d %b %Y') }}</span>
+        <span class="badge badge-draft">{{ post.post_type }}</span>
+        <span style="font-size:12px;color:var(--muted);">{{ post.platforms|join(', ') if post.platforms else '' }}</span>
+      </div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:4px;">{{ post.topic }}</div>
+      <div style="font-size:13px;color:var(--teal);">{{ post.cover_text }}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+      {% if post.status == 'approved' %}
+        <form method="POST" action="/clients/{{ client.id }}/creatives/{{ post.id }}/generate">
+          <button type="submit" class="btn btn-sm">Generate Creative →</button>
+        </form>
+      {% elif post.status == 'creative_ready' %}
+        <div style="display:flex;gap:8px;">
+          <form method="POST" action="/clients/{{ client.id }}/creatives/{{ post.id }}/approve-creative">
+            <button type="submit" class="btn btn-sm">✓ Approve</button>
+          </form>
+          <form method="POST" action="/clients/{{ client.id }}/creatives/{{ post.id }}/reject-creative">
+            <button type="submit" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(248,113,113,0.3);">✗ Reject</button>
+          </form>
+        </div>
+      {% elif post.status == 'creative_approved' %}
+        <form method="POST" action="/clients/{{ client.id }}/creatives/{{ post.id }}/publish">
+          <button type="submit" class="btn btn-sm" style="background:var(--green);">▶ Publish Now</button>
+        </form>
+      {% elif post.status == 'posted' %}
+        <span style="font-size:13px;color:var(--green);">✓ Posted {{ post.posted_at }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if post.creative_paths and post.creative_paths|length > 1 %}
+  <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    {% for slide_path in post.creative_paths %}
+    <img src="/clients/{{ client.id }}/creatives/image/{{ post.id }}/{{ loop.index }}"
+         onclick="document.getElementById('lb-{{ post.id }}-{{ loop.index }}').style.display='flex'"
+         style="width:120px;height:120px;object-fit:cover;border-radius:8px;cursor:zoom-in;border:1px solid var(--line);">
+    <div id="lb-{{ post.id }}-{{ loop.index }}" onclick="this.style.display='none'"
+         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;justify-content:center;align-items:center;cursor:zoom-out;">
+      <img src="/clients/{{ client.id }}/creatives/image/{{ post.id }}/{{ loop.index }}" style="max-width:90vw;max-height:90vh;border-radius:8px;">
+    </div>
+    {% endfor %}
+    <span style="font-size:12px;color:var(--muted);">{{ post.creative_paths|length }}-slide carousel</span>
+  </div>
+  {% elif post.creative_path %}
+  <div style="margin-top:16px;">
+    <img src="/clients/{{ client.id }}/creatives/image/{{ post.id }}"
+         onclick="document.getElementById('lb-{{ post.id }}').style.display='flex'"
+         style="width:160px;height:160px;object-fit:cover;border-radius:8px;cursor:zoom-in;border:1px solid var(--line);">
+  </div>
+  <!-- Lightbox -->
+  <div id="lb-{{ post.id }}" onclick="this.style.display='none'"
+       style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;justify-content:center;align-items:center;cursor:zoom-out;">
+    <img src="/clients/{{ client.id }}/creatives/image/{{ post.id }}" style="max-width:90vw;max-height:90vh;border-radius:8px;">
+  </div>
+  {% endif %}
+
+  {% if post.caption %}
+  <details style="margin-top:12px;">
+    <summary style="font-size:13px;color:var(--muted);cursor:pointer;">View caption</summary>
+    <p style="font-size:13px;color:var(--muted);margin-top:8px;white-space:pre-wrap;line-height:1.6;">{{ post.caption }}</p>
+  </details>
+  {% endif %}
+</div>
+{% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <h3>No posts in pipeline</h3>
+  <p>Go to <a href="/clients/{{ client.id }}/social" style="color:var(--teal);">Social Media</a> and approve posts to start generating creatives.</p>
+</div>
+{% endif %}
+{% endblock %}

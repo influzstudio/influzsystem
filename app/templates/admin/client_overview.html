@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ client.business_name }} — Influz Studio{% endblock %}
+{% block content %}
+<div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;">
+  <div>
+    <div class="eyebrow">Client Overview</div>
+    <div class="page-title">{{ client.business_name }}</div>
+  </div>
+  <a href="/clients/{{ client.id }}/edit" class="btn btn-ghost btn-sm">Edit Profile & Brand →</a>
+</div>
+
+<div class="module-nav">
+  <a href="/clients/{{ client.id }}/social" class="module-btn">◉ Social</a>
+  <a href="/clients/{{ client.id }}/seo" class="module-btn">⊕ SEO</a>
+  <a href="/clients/{{ client.id }}/ads" class="module-btn">◎ Ads</a>
+  <a href="/clients/{{ client.id }}/website" class="module-btn">⊡ Website</a>
+  <a href="/clients/{{ client.id }}/reports" class="module-btn">◱ Reports</a>
+</div>
+
+<div class="grid-2" style="margin-bottom:24px;">
+  <div class="card">
+    <div class="card-title">Brand Profile</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Industry</div>
+    <div style="margin-bottom:12px;">{{ client.industry }}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Brand Voice</div>
+    <div style="margin-bottom:12px;">{{ client.brand_voice }}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">USP</div>
+    <div>{{ client.usp or "—" }}</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Goals & Platforms</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      {% for g in client.goals or [] %}<span class="badge badge-approved">{{ g }}</span>{% endfor %}
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Connected Platforms</div>
+    {% if platforms %}
+      {% for p in platforms %}<span class="badge badge-draft" style="margin-right:6px;">{{ p.platform }}</span>{% endfor %}
+    {% else %}
+      <span style="font-size:13px;color:var(--muted);">No platforms connected yet</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid-3">
+  <div class="card">
+    <div class="card-title">Recent Posts</div>
+    {% for post in recent_posts %}
+    <div style="padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;">
+      <div style="color:var(--ink);">{{ post.topic[:40] }}{% if post.topic|length > 40 %}…{% endif %}</div>
+      <div style="color:var(--muted);margin-top:2px;">{{ post.post_date }} · <span class="badge badge-{{ post.status }}">{{ post.status }}</span></div>
+    </div>
+    {% else %}<div class="empty" style="padding:20px 0;"><p>No posts yet</p></div>{% endfor %}
+    <a href="/clients/{{ client.id }}/social" class="btn btn-ghost btn-sm" style="margin-top:12px;">View all →</a>
+  </div>
+  <div class="card">
+    <div class="card-title">Recent Leads</div>
+    {% for lead in recent_leads %}
+    <div style="padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;">
+      <div style="color:var(--ink);">{{ lead.name or lead.email or "Unknown" }}</div>
+      <div style="color:var(--muted);margin-top:2px;">{{ lead.source }} · <span class="badge badge-{{ lead.priority }}">{{ lead.priority }}</span></div>
+    </div>
+    {% else %}<div class="empty" style="padding:20px 0;"><p>No leads yet</p></div>{% endfor %}
+    <a href="/clients/{{ client.id }}/ads" class="btn btn-ghost btn-sm" style="margin-top:12px;">View all →</a>
+  </div>
+  <div class="card">
+    <div class="card-title">Pending Tasks</div>
+    {% for task in pending_tasks %}
+    <div style="padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;">
+      <div style="color:var(--ink);">{{ task.title[:40] }}</div>
+      <div style="color:var(--muted);margin-top:2px;">{{ task.module }} · <span class="badge badge-{{ task.priority }}">{{ task.priority }}</span></div>
+    </div>
+    {% else %}<div class="empty" style="padding:20px 0;"><p>No pending tasks</p></div>{% endfor %}
+    <a href="/clients/{{ client.id }}/reports" class="btn btn-ghost btn-sm" style="margin-top:12px;">View all →</a>
+  </div>
+</div>
+{% endblock %}
