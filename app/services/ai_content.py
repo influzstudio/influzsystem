@@ -2,18 +2,6 @@ import os, json, re
 from datetime import date, timedelta
 
 
-def _call_gemini(prompt, max_tokens=8000):
-    """Call Gemini using the official google-genai SDK which handles AQ. keys."""
-    import google.genai as genai
-    key = os.getenv("GEMINI_API_KEY", "")
-    client = genai.Client(api_key=key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-    )
-    return response.text.strip()
-
-
 def _build_prompt(business_name, niche, brand_voice, goals, city, usp, services,
                    products, target_audience, price_range, content_pillars,
                    competitors, start_date, num_posts):
@@ -82,16 +70,6 @@ def generate_social_calendar(business_name, niche, brand_voice, goals, city, sta
             if isinstance(items, list) and items: return items[:num_posts]
         except Exception as e:
             if "credit" not in str(e).lower(): print(f"Anthropic error: {e}")
-
-    # Try Gemini
-    if os.getenv("GEMINI_API_KEY"):
-        try:
-            raw = _call_gemini(prompt)
-            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
-            items = json.loads(raw)
-            if isinstance(items, list) and items: return items[:num_posts]
-        except Exception as e:
-            print(f"Gemini error: {e}")
 
     # Try Groq (free) — primary path for this deployment
     if os.getenv("GROQ_API_KEY"):

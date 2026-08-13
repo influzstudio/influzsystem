@@ -48,13 +48,13 @@ def generate_creative(request: Request, client_id: int, post_id: int, db: Sessio
         photo_keywords = []
         if post.reference_note:
             photo_keywords.append(post.reference_note)
-        photo_keywords.append(f"{post.topic} {client.industry if client else ''}")
+        photo_keywords.append(post.topic)  # raw topic first — "Paris Weekend Vacation", not diluted with business category words
+        photo_keywords.append(f"{post.topic} {client.industry}" if client else post.topic)
         if client and client.products:
             photo_keywords.append(f"{client.products[0]} {client.industry}")
         if client and client.services:
             photo_keywords.append(f"{client.services[0]} {client.industry}")
         photo_keywords.append(client.industry if client else "")
-        photo_keywords.append("business professional")
 
         common_kwargs = dict(
             post_id=post.id,

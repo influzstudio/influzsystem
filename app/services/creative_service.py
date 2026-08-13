@@ -5,7 +5,7 @@ Generates client-branded 1080x1080 images using Pillow + Unsplash photos.
 Branding rule: every creative uses the CLIENT's brand colors and CLIENT's logo.
 Influz Studio appears only as a small "Powered by Influz" watermark in the footer.
 """
-import os, io, base64, colorsys
+import os, io, base64, colorsys, json, random
 from pathlib import Path
 import requests
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
@@ -146,12 +146,51 @@ def _keyword_score(alt_text, query):
     return sum(1 for w in q_words if w in alt)
 
 
+_USED_PHOTOS_FILE = CREATIVES_DIR / ".used_photo_ids.json"
+
+
+def _recently_used_ids():
+    try:
+        return set(json.loads(_USED_PHOTOS_FILE.read_text()))
+    except Exception:
+        return set()
+
+
+def _remember_used_id(photo_id):
+    ids = list(_recently_used_ids())
+    ids.append(str(photo_id))
+    ids = ids[-60:]  # keep a rolling window so old ids eventually cycle back in
+    try:
+        _USED_PHOTOS_FILE.write_text(json.dumps(ids))
+    except Exception:
+        pass
+
+
+def _pick_candidate(results, query, get_id, get_alt):
+    """
+    Picks a photo from search results — prefers keyword relevance, but avoids
+    always deterministically returning the same #1 result for similar/repeated
+    queries (which was producing the same stock photo across unrelated posts).
+    """
+    used = _recently_used_ids()
+    scored = [(r, _keyword_score(get_alt(r), query)) for r in results]
+    scored = [(r, s) for r, s in scored if s >= 0]  # drop brand/logo matches
+    if not scored:
+        return None
+    top_score = max(s for _, s in scored)
+    top_pool = [r for r, s in scored if s == top_score]
+    fresh_pool = [r for r in top_pool if str(get_id(r)) not in used]
+    chosen = random.choice(fresh_pool) if fresh_pool else random.choice(top_pool)
+    _remember_used_id(get_id(chosen))
+    return chosen
+
+
 def _fetch_from_pexels(query):
     if not PEXELS_KEY:
         return None
     try:
         r = requests.get("https://api.pexels.com/v1/search",
-            params={"query": query, "per_page": 12, "orientation": "square"},
+            params={"query": query, "per_page": 15, "orientation": "square"},
             headers={"Authorization": PEXELS_KEY}, timeout=10)
         if r.status_code != 200:
             print(f"[creative_service] Pexels HTTP {r.status_code} for '{query}': {r.text[:200]}")
@@ -159,10 +198,9 @@ def _fetch_from_pexels(query):
         results = r.json().get("photos", [])
         if not results:
             return None
-        scored = sorted(results, key=lambda p: _keyword_score(p.get("alt", ""), query), reverse=True)
-        best = scored[0]
-        if _keyword_score(best.get("alt", ""), query) < 0:
-            return None  # all candidates were brand/logo matches — let it fall through to next query
+        best = _pick_candidate(results, query, get_id=lambda p: p["id"], get_alt=lambda p: p.get("alt", ""))
+        if not best:
+            return None
         url = best["src"]["large"]
         img = Image.open(io.BytesIO(requests.get(url, timeout=30).content)).convert("RGBA")
         return img
@@ -176,7 +214,7 @@ def _fetch_from_unsplash(query):
         return None
     try:
         r = requests.get("https://api.unsplash.com/search/photos",
-            params={"query": query, "per_page": 12, "orientation": "squarish"},
+            params={"query": query, "per_page": 15, "orientation": "squarish"},
             headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"}, timeout=10)
         if r.status_code != 200:
             print(f"[creative_service] Unsplash HTTP {r.status_code} for '{query}': {r.text[:200]}")
@@ -185,9 +223,8 @@ def _fetch_from_unsplash(query):
         if not results:
             return None
         def alt(p): return p.get("alt_description") or p.get("description") or ""
-        scored = sorted(results, key=lambda p: _keyword_score(alt(p), query), reverse=True)
-        best = scored[0]
-        if _keyword_score(alt(best), query) < 0:
+        best = _pick_candidate(results, query, get_id=lambda p: p["id"], get_alt=alt)
+        if not best:
             return None
         url = best["urls"].get("regular")
         img = Image.open(io.BytesIO(requests.get(url, timeout=30).content)).convert("RGBA")
